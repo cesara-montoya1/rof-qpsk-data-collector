@@ -209,3 +209,4 @@ __marimo__/
 # Experiment outputs
 *.complex64
 *.log
+data/
