@@ -36,7 +36,7 @@ import threading
 
 class qpsk_tx(gr.top_block, Qt.QWidget):
 
-    def __init__(self, freq=650e6, samp_rate_div=1, samp_sym=16, tx_file="../data/tx.txt"):
+    def __init__(self, freq=650e6, samp_rate_div=1, samp_sym=16, tx_file="../data/tx.txt", zmq_addr="tcp://0.0.0.0:18305"):
         gr.top_block.__init__(self, "QPSK Tx", catch_exceptions=True)
         Qt.QWidget.__init__(self)
         self.setWindowTitle("QPSK Tx")
@@ -74,6 +74,7 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.samp_rate_div = samp_rate_div
         self.samp_sym = samp_sym
         self.tx_file = tx_file
+        self.zmq_addr = zmq_addr
 
         ##################################################
         # Variables
@@ -85,7 +86,7 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.rrc_taps = rrc_taps = firdes.root_raised_cosine(1.0, samp_rate,sym_rate, beta, samp_sym)
         self.qpsk = qpsk = digital.constellation_rect([0.707+0.707j, -0.707+0.707j, -0.707-0.707j, 0.707-0.707j], [0, 1, 2, 3],
         4, 2, 2, 1, 1).base()
-        self.noise = noise = 0.2
+        self.noise = noise = 0.15
         self.mod_ord = mod_ord = 2
         self.gain = gain = 85
 
@@ -93,11 +94,11 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         # Blocks
         ##################################################
 
-        self._noise_range = qtgui.Range(0, 2, 0.01, 0.2, 200)
+        self._noise_range = qtgui.Range(0, 1, 0.01, 0.15, 200)
         self._noise_win = qtgui.RangeWidget(self._noise_range, self.set_noise, "Sim: Noise Voltage", "counter_slider", float, QtCore.Qt.Horizontal)
         self.top_layout.addWidget(self._noise_win)
-        self.zeromq_sub_source_0 = zeromq.sub_source(gr.sizeof_gr_complex, 1, 'tcp://0.0.0.0:18305', 100, False, (-1), '', False)
-        self.zeromq_pub_sink_0 = zeromq.pub_sink(gr.sizeof_gr_complex, 1, 'tcp://0.0.0.0:18305', 100, False, (-1), '', True, True)
+        self.zeromq_sub_source_0 = zeromq.sub_source(gr.sizeof_gr_complex, 1, zmq_addr, 5000, False, (-1), '', False)
+        self.zeromq_pub_sink_0 = zeromq.pub_sink(gr.sizeof_gr_complex, 1, zmq_addr, 100, False, (-1), '', True, True)
         self.root_raised_cosine_filter_0 = filter.fir_filter_ccf(
             1,
             firdes.root_raised_cosine(
@@ -220,7 +221,7 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
             taps=[1.0],
             noise_seed=0,
             block_tags=False)
-        self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_char*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
+        self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_gr_complex*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
         self.blocks_repeat_0 = blocks.repeat(gr.sizeof_gr_complex*1, samp_sym)
         self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(mod_ord)
         self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, tx_file, True, 0, 0)
@@ -235,9 +236,9 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.connect((self.analog_agc_xx_0, 0), (self.digital_symbol_sync_xx_0, 0))
         self.connect((self.blocks_add_const_vxx_0, 0), (self.blocks_pack_k_bits_bb_0, 0))
         self.connect((self.blocks_file_source_0, 0), (self.blocks_add_const_vxx_0, 0))
-        self.connect((self.blocks_file_source_0, 0), (self.blocks_throttle2_0, 0))
         self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.digital_constellation_encoder_bc_0, 0))
         self.connect((self.blocks_repeat_0, 0), (self.root_raised_cosine_filter_0, 0))
+        self.connect((self.channels_channel_model_0, 0), (self.blocks_throttle2_0, 0))
         self.connect((self.channels_channel_model_0, 0), (self.zeromq_pub_sink_0, 0))
         self.connect((self.digital_constellation_encoder_bc_0, 0), (self.blocks_repeat_0, 0))
         self.connect((self.digital_symbol_sync_xx_0, 0), (self.qtgui_const_sink_x_0, 0))
@@ -285,6 +286,12 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
     def set_tx_file(self, tx_file):
         self.tx_file = tx_file
         self.blocks_file_source_0.open(self.tx_file, True)
+
+    def get_zmq_addr(self):
+        return self.zmq_addr
+
+    def set_zmq_addr(self, zmq_addr):
+        self.zmq_addr = zmq_addr
 
     def get_max_sample_rate(self):
         return self.max_sample_rate
@@ -368,6 +375,9 @@ def argument_parser():
     parser.add_argument(
         "--tx-file", dest="tx_file", type=str, default="../data/tx.txt",
         help="Set input tx file [default=%(default)r]")
+    parser.add_argument(
+        "--zmq-addr", dest="zmq_addr", type=str, default="tcp://0.0.0.0:18305",
+        help="Set ZMQ address [default=%(default)r]")
     return parser
 
 
@@ -377,7 +387,7 @@ def main(top_block_cls=qpsk_tx, options=None):
 
     qapp = Qt.QApplication(sys.argv)
 
-    tb = top_block_cls(freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, tx_file=options.tx_file)
+    tb = top_block_cls(freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, tx_file=options.tx_file, zmq_addr=options.zmq_addr)
 
     tb.start()
     tb.flowgraph_started.set()
