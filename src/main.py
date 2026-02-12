@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import sys
 import os
-from experiment_runner import run_grc_capture
+from runner import run_grc_capture
 from file_manager import get_unique_filepath, move_output_file
 
 # Configuration for Logging
