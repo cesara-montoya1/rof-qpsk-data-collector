@@ -36,7 +36,7 @@ import threading
 
 class qpsk_tx(gr.top_block, Qt.QWidget):
 
-    def __init__(self, freq=650e6, samp_rate_div=1, samp_sym=16, tx_file="../data/tx.txt", zmq_addr="tcp://0.0.0.0:18305"):
+    def __init__(self, file_tx="../data/tx.txt", freq=650e6, samp_rate_div=1, samp_sym=16, zmq_addr="tcp://0.0.0.0:18305"):
         gr.top_block.__init__(self, "QPSK Tx", catch_exceptions=True)
         Qt.QWidget.__init__(self)
         self.setWindowTitle("QPSK Tx")
@@ -70,10 +70,10 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         ##################################################
         # Parameters
         ##################################################
+        self.file_tx = file_tx
         self.freq = freq
         self.samp_rate_div = samp_rate_div
         self.samp_sym = samp_sym
-        self.tx_file = tx_file
         self.zmq_addr = zmq_addr
 
         ##################################################
@@ -226,7 +226,7 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_char*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
         self.blocks_repeat_0 = blocks.repeat(gr.sizeof_gr_complex*1, samp_sym)
         self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(mod_ord)
-        self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, tx_file, True, 0, 0)
+        self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, file_tx, True, 0, 0)
         self.blocks_file_source_0.set_begin_tag(pmt.PMT_NIL)
         self.blocks_add_const_vxx_0 = blocks.add_const_bb(208)
         self.analog_agc_xx_0 = analog.agc_cc((1e-4), 1.0, 1.0, 65536)
@@ -257,6 +257,13 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 
         event.accept()
 
+    def get_file_tx(self):
+        return self.file_tx
+
+    def set_file_tx(self, file_tx):
+        self.file_tx = file_tx
+        self.blocks_file_source_0.open(self.file_tx, True)
+
     def get_freq(self):
         return self.freq
 
@@ -281,13 +288,6 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.blocks_repeat_0.set_interpolation(self.samp_sym)
         self.digital_symbol_sync_xx_0.set_sps(self.samp_sym)
         self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
-
-    def get_tx_file(self):
-        return self.tx_file
-
-    def set_tx_file(self, tx_file):
-        self.tx_file = tx_file
-        self.blocks_file_source_0.open(self.tx_file, True)
 
     def get_zmq_addr(self):
         return self.zmq_addr
@@ -366,6 +366,9 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 def argument_parser():
     parser = ArgumentParser()
     parser.add_argument(
+        "--file-tx", dest="file_tx", type=str, default="../data/tx.txt",
+        help="Set input tx file [default=%(default)r]")
+    parser.add_argument(
         "--freq", dest="freq", type=eng_float, default=eng_notation.num_to_str(float(650e6)),
         help="Set central frequency [default=%(default)r]")
     parser.add_argument(
@@ -374,9 +377,6 @@ def argument_parser():
     parser.add_argument(
         "--samp-sym", dest="samp_sym", type=intx, default=16,
         help="Set samples per symbol [default=%(default)r]")
-    parser.add_argument(
-        "--tx-file", dest="tx_file", type=str, default="../data/tx.txt",
-        help="Set input tx file [default=%(default)r]")
     parser.add_argument(
         "--zmq-addr", dest="zmq_addr", type=str, default="tcp://0.0.0.0:18305",
         help="Set ZMQ address [default=%(default)r]")
@@ -389,7 +389,7 @@ def main(top_block_cls=qpsk_tx, options=None):
 
     qapp = Qt.QApplication(sys.argv)
 
-    tb = top_block_cls(freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, tx_file=options.tx_file, zmq_addr=options.zmq_addr)
+    tb = top_block_cls(file_tx=options.file_tx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, zmq_addr=options.zmq_addr)
 
     tb.start()
     tb.flowgraph_started.set()

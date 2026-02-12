@@ -12,7 +12,7 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.StreamHandler(sys.stdout),
-        logging.FileHandler("../logs/experiment.log"),
+        logging.FileHandler("./logs/experiment.log"),
     ],
 )
 logger = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--file-rx",
         type=str,
-        default="../data/qpsk.complex64",
+        default="./data/qpsk.complex64",
         help="Temporary capture file",
     )
     parser.add_argument(
@@ -64,7 +64,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # 1. Prepare GRC Command
-    grc_path = os.path.join("..", "grc", "qpsk_rx.py")
+    grc_path = os.path.join(".", "grc", "qpsk_rx.py")
 
     # Convert MHz to Hz for the SDR/GRC block
     freq_hz = args.freq * 1e6

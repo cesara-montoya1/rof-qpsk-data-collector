@@ -217,7 +217,7 @@ blocks:
     alias: ''
     begin_tag: pmt.PMT_NIL
     comment: ''
-    file: tx_file
+    file: file_tx
     length: '0'
     maxoutbuf: '0'
     minoutbuf: '0'
