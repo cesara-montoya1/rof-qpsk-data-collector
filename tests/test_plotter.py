@@ -33,6 +33,9 @@ def sample_csv_path(tmp_path: Path) -> Path:
                     "bitrate_mbps": 2.0,
                     "filename": f"test_d{d}_s{snr}_{i}.complex64",
                     "ber": ber_val,
+                    "evm_rms_pct": 10.0 + noise * 10,
+                    "evm_db": -20.0 + noise * 5,
+                    "evm_peak_pct": 15.0 + noise * 10,
                     "detected_delay": 100,
                     "npz_source": f"data_{int(d)}km.npz",
                 })
@@ -47,6 +50,8 @@ def test_load_and_prepare_data(sample_csv_path: Path) -> None:
     assert not df.empty
     assert "distance_km" in df.columns
     assert "ber" in df.columns
+    assert "evm_db" in df.columns
+    assert "evm_rms_pct" in df.columns
     assert set(df["distance_km"].unique()) == {0.0, 2.0, 20.0}
 
 
@@ -65,6 +70,38 @@ def test_generate_ber_plots(sample_csv_path: Path, tmp_path: Path) -> None:
     assert "ber_vs_snr_shaded.png" in plot_names
     assert "ber_vs_osnr_mean.png" in plot_names
     assert "ber_vs_osnr_shaded.png" in plot_names
+
+
+def test_generate_evm_plots(sample_csv_path: Path, tmp_path: Path) -> None:
+    from qpsk_src.plotter import generate_all_plots, generate_evm_plots
+
+    out_dir = tmp_path / "plots_evm"
+    plots = generate_evm_plots(sample_csv_path, output_dir=out_dir)
+
+    assert len(plots) >= 4
+    for p in plots:
+        assert p.exists()
+        assert p.stat().st_size > 0
+        assert p.suffix == ".png"
+
+    plot_names = [p.name for p in plots]
+    assert "evm_vs_snr_mean.png" in plot_names
+    assert "evm_vs_snr_shaded.png" in plot_names
+    assert "evm_vs_osnr_mean.png" in plot_names
+    assert "evm_vs_osnr_shaded.png" in plot_names
+
+
+def test_generate_all_plots(sample_csv_path: Path, tmp_path: Path) -> None:
+    from qpsk_src.plotter import generate_all_plots
+
+    out_dir = tmp_path / "plots_all"
+    plots = generate_all_plots(sample_csv_path, output_dir=out_dir)
+
+    # At least 4 BER plots + 4-6 EVM plots
+    assert len(plots) >= 8
+    for p in plots:
+        assert p.exists()
+        assert p.stat().st_size > 0
 
 
 def test_load_data_file_not_found() -> None:

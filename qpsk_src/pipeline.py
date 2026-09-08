@@ -1,7 +1,7 @@
 """Pipeline orchestrator for QPSK signal demodulation and results logging."""
 
 from pathlib import Path
-from typing import Optional
+from typing import Any, Dict, Optional
 import numpy as np
 
 from .compressor import compress_distance_folder
@@ -67,7 +67,22 @@ def run_pipeline(
         output_path = Path(output_csv_path)
 
     tx_ref = load_tx_reference(tx_ref_path)
-    results_list, processed_files = load_existing_results(output_path)
+    results_list, _ = load_existing_results(output_path)
+    # Index existing records by filename for in-place updating and fast lookup
+    existing_records_by_name: dict[str, dict[str, Any]] = {
+        r["filename"]: r for r in results_list if "filename" in r and r["filename"]
+    }
+
+    def is_fully_processed(rec: Optional[dict[str, Any]]) -> bool:
+        if not rec:
+            return False
+        ber_val = rec.get("ber")
+        evm_val = rec.get("evm_rms_pct")
+        if ber_val is None or str(ber_val).strip().lower() in ("", "nan", "none"):
+            return False
+        if evm_val is None or str(evm_val).strip().lower() in ("", "nan", "none"):
+            return False
+        return True
 
     for dist_folder in distance_folders:
         npz_path = compress_distance_folder(dist_folder)
@@ -76,27 +91,44 @@ def run_pipeline(
 
         with np.load(npz_path, allow_pickle=True) as npz_data:
             for filename in npz_data.files:
-                if filename in processed_files:
+                existing_rec = existing_records_by_name.get(filename)
+
+                # If the record is already fully processed (both BER and EVM present), skip it
+                if is_fully_processed(existing_rec):
                     continue
 
                 rx_signal = npz_data[filename]
                 sig_res = process_signal(tx_ref, rx_signal)
-                meta = parse_filename_metadata(filename)
 
-                record = {
-                    "launch_power_dbm": meta["launch_power_dbm"],
-                    "distance_km": meta["distance_km"],
-                    "osnr_db": meta["osnr_db"],
-                    "snr_db": meta["snr_db"],
-                    "freq_mhz": meta["freq_mhz"],
-                    "bitrate_mbps": meta["bitrate_mbps"],
-                    "filename": filename,
-                    "ber": sig_res["ber"],
-                    "detected_delay": sig_res["detected_delay"],
-                    "npz_source": str(npz_path.name),
-                }
-                results_list.append(record)
-                processed_files.add(filename)
+                if existing_rec is not None:
+                    # Update existing record in-place with EVM metrics (and any missing BER/delay)
+                    existing_rec["evm_rms_pct"] = sig_res["evm_rms_pct"]
+                    existing_rec["evm_db"] = sig_res["evm_db"]
+                    existing_rec["evm_peak_pct"] = sig_res["evm_peak_pct"]
+                    if existing_rec.get("ber") in (None, "", "nan", "None"):
+                        existing_rec["ber"] = sig_res["ber"]
+                    if existing_rec.get("detected_delay") in (None, "", "nan", "None"):
+                        existing_rec["detected_delay"] = sig_res["detected_delay"]
+                else:
+                    # Brand new record: extract metadata and append
+                    meta = parse_filename_metadata(filename)
+                    record = {
+                        "launch_power_dbm": meta["launch_power_dbm"],
+                        "distance_km": meta["distance_km"],
+                        "osnr_db": meta["osnr_db"],
+                        "snr_db": meta["snr_db"],
+                        "freq_mhz": meta["freq_mhz"],
+                        "bitrate_mbps": meta["bitrate_mbps"],
+                        "filename": filename,
+                        "ber": sig_res["ber"],
+                        "detected_delay": sig_res["detected_delay"],
+                        "evm_rms_pct": sig_res["evm_rms_pct"],
+                        "evm_db": sig_res["evm_db"],
+                        "evm_peak_pct": sig_res["evm_peak_pct"],
+                        "npz_source": str(npz_path.name),
+                    }
+                    results_list.append(record)
+                    existing_records_by_name[filename] = record
 
         save_results_safely(output_path, results_list)
 

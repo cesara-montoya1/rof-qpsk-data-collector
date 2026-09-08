@@ -3,6 +3,8 @@
 from typing import Any, Dict, Tuple
 import numpy as np
 
+from .evm import compute_evm
+
 # QPSK Constellation mapping:
 # 00 -> 0.707 + 0.707j
 # 01 -> -0.707 + 0.707j
@@ -107,7 +109,8 @@ def sync_signals(
 def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
     """
     Sweeps phase rotations (1, 1j, -1, -1j) to find the best phase alignment
-    producing the minimum Bit Error Rate (BER) and detected delay.
+    producing the minimum Bit Error Rate (BER) and detected delay, and computes
+    Error Vector Magnitude (EVM) on the synchronized optimal signal.
 
     Args:
         tx_ref: 1D complex array of transmitted reference symbols.
@@ -118,11 +121,16 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
             - 'ber': Minimum BER achieved (float)
             - 'detected_delay': Estimated delay in samples (int)
             - 'phase_rotation': Phase rotation factor that produced minimum BER (complex)
+            - 'evm_rms_pct': RMS EVM in percent (%)
+            - 'evm_db': RMS EVM in dB
+            - 'evm_peak_pct': Peak EVM in percent (%)
     """
     rotations = [1, 1j, -1, -1j]
     best_ber = 1.0
     best_delay = 0
     best_rotation = 1
+    best_tx_s = None
+    best_rx_s = None
 
     for rot in rotations:
         rx_rotated = rx_signal * rot
@@ -140,9 +148,24 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
             best_ber = ber
             best_delay = delay
             best_rotation = rot
+            best_tx_s = tx_s
+            best_rx_s = rx_s
+
+    if best_tx_s is not None and best_rx_s is not None and len(best_tx_s) > 0 and len(best_rx_s) > 0:
+        n_sym = min(len(best_tx_s), len(best_rx_s))
+        evm_res = compute_evm(best_rx_s[:n_sym], best_tx_s[:n_sym])
+    else:
+        evm_res = {
+            "evm_rms_pct": float("nan"),
+            "evm_db": float("nan"),
+            "evm_peak_pct": float("nan"),
+        }
 
     return {
         "ber": best_ber,
         "detected_delay": int(best_delay),
         "phase_rotation": complex(best_rotation),
+        "evm_rms_pct": evm_res["evm_rms_pct"],
+        "evm_db": evm_res["evm_db"],
+        "evm_peak_pct": evm_res["evm_peak_pct"],
     }

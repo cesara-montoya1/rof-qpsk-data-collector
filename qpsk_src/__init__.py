@@ -11,8 +11,9 @@ from .demodulator import (
     sync_signals,
     process_signal,
 )
+from .evm import compute_evm, compute_theoretical_evm_from_snr
 from .pipeline import load_tx_reference, run_pipeline
-from .plotter import generate_ber_plots
+from .plotter import generate_all_plots, generate_ber_plots, generate_evm_plots
 
 __all__ = [
     "validate_dataset_dir",
@@ -26,7 +27,11 @@ __all__ = [
     "demodulate_qpsk",
     "sync_signals",
     "process_signal",
+    "compute_evm",
+    "compute_theoretical_evm_from_snr",
     "load_tx_reference",
     "run_pipeline",
     "generate_ber_plots",
+    "generate_evm_plots",
+    "generate_all_plots",
 ]

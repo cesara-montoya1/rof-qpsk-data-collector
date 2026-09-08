@@ -5,7 +5,7 @@ from pathlib import Path
 
 from .compressor import compress_distance_folder
 from .pipeline import run_pipeline
-from .plotter import generate_ber_plots
+from .plotter import generate_all_plots, generate_ber_plots, generate_evm_plots
 from .validation import validate_dataset_dir
 
 
@@ -62,6 +62,14 @@ def main() -> None:
         default=None,
         help="Directory to save output PNG plots (default: <csv_dir>/plots/).",
     )
+    plot_parser.add_argument(
+        "--metric",
+        "-m",
+        type=str,
+        choices=["all", "ber", "evm"],
+        default="all",
+        help="Metric to plot: 'all' (default), 'ber', or 'evm'.",
+    )
 
     # Subcommand: compress
     compress_parser = subparsers.add_parser(
@@ -111,8 +119,14 @@ def main() -> None:
         else:
             raise ValueError("Must specify either --csv-path or --dataset-dir to generate plots.")
 
-        plots = generate_ber_plots(csv_path=csv_file, output_dir=args.output_dir)
-        print(f"Generated {len(plots)} plot figures from {csv_file}:")
+        if args.metric == "ber":
+            plots = generate_ber_plots(csv_path=csv_file, output_dir=args.output_dir)
+        elif args.metric == "evm":
+            plots = generate_evm_plots(csv_path=csv_file, output_dir=args.output_dir)
+        else:
+            plots = generate_all_plots(csv_path=csv_file, output_dir=args.output_dir)
+
+        print(f"Generated {len(plots)} plot figures ({args.metric}) from {csv_file}:")
         for p in plots:
             print(f"  - {p}")
 
