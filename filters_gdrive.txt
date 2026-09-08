@@ -1,0 +1,38 @@
+# ==========================================================
+# EXCLUDE TRASH, ENVIRONMENTS, LOCAL DOCS & HEAVY ARCHIVES
+# ==========================================================
+- **/.pixi/**
+- **/.venv/**
+- **/venv/**
+- **/__pycache__/**
+- **/.git/**
+- **/.git/
+- **/.git
+- **/.gitignore
+- **/.pytest_cache/**
+- **/.cache/**
+- **/docs/**
+- **/Legacy/**
+- **/archived_history/**
+- **/historico_archivado/**
+- **/Resultados varias pruebas (historico)/**
+
+# ==========================================================
+# INCLUDE ALL CODE, NOTEBOOKS, CSVS & ACTIVE DATASETS
+# ==========================================================
++ *.csv
++ *.complex64
++ *.npz
++ *.py
++ *.sh
++ *.md
++ *.json
++ *.ipynb
++ tx.txt
++ pixi.toml
++ pixi.lock
+
+# ==========================================================
+# EXCLUDE EVERYTHING ELSE
+# ==========================================================
+- *

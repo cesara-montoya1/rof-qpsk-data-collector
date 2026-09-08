@@ -75,7 +75,7 @@ if __name__ == "__main__":
         "--freq",
         str(freq_hz),
         "--file-rx",
-        args.file_rx,  # Unified name
+        args.file_rx,
         "--samp-rate-div",
         str(args.samp_rate_div),
         "--samp-sym",

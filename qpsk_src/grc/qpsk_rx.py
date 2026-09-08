@@ -7,13 +7,12 @@
 # GNU Radio Python Flow Graph
 # Title: QPSK Rx
 # Author: César
-# GNU Radio version: 3.10.12.0
+# GNU Radio version: 3.10.9.2
 
 from PyQt5 import Qt
 from gnuradio import qtgui
 from PyQt5 import QtCore
 from gnuradio import analog
-from gnuradio import blocks
 from gnuradio import blocks, gr
 from gnuradio import digital
 from gnuradio import filter
@@ -26,16 +25,16 @@ from PyQt5 import Qt
 from argparse import ArgumentParser
 from gnuradio.eng_arg import eng_float, intx
 from gnuradio import eng_notation
-from gnuradio import zeromq
+from gnuradio import uhd
+import time
 import numpy as np
 import sip
-import threading
 
 
 
 class qpsk_rx(gr.top_block, Qt.QWidget):
 
-    def __init__(self, file_rx="../data/qpsk.complex64", freq=650e6, samp_rate_div=1, samp_sym=16, zmq_addr="tcp://0.0.0.0:18305"):
+    def __init__(self, file_rx="./data/qpsk.complex64", freq=650e6, samp_rate_div=1, samp_sym=16, zmq_addr="tcp://0.0.0.0:18305"):
         gr.top_block.__init__(self, "QPSK Rx", catch_exceptions=True)
         Qt.QWidget.__init__(self)
         self.setWindowTitle("QPSK Rx")
@@ -56,7 +55,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         self.top_grid_layout = Qt.QGridLayout()
         self.top_layout.addLayout(self.top_grid_layout)
 
-        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qpsk_rx")
+        self.settings = Qt.QSettings("GNU Radio", "qpsk_rx")
 
         try:
             geometry = self.settings.value("geometry")
@@ -64,7 +63,6 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
                 self.restoreGeometry(geometry)
         except BaseException as exc:
             print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
-        self.flowgraph_started = threading.Event()
 
         ##################################################
         # Parameters
@@ -96,7 +94,23 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         # Blocks
         ##################################################
 
-        self.zeromq_sub_source_0 = zeromq.sub_source(gr.sizeof_gr_complex, 1, 'tcp://0.0.0.0:18305', 100, False, (-1), '', False)
+        self._gain_range = qtgui.Range(0, 76, 1, 60, 200)
+        self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_layout.addWidget(self._gain_win)
+        self.uhd_usrp_source_0 = uhd.usrp_source(
+            ",".join(('', '')),
+            uhd.stream_args(
+                cpu_format="fc32",
+                args='',
+                channels=list(range(0,1)),
+            ),
+        )
+        self.uhd_usrp_source_0.set_samp_rate(samp_rate)
+        self.uhd_usrp_source_0.set_time_unknown_pps(uhd.time_spec(0))
+
+        self.uhd_usrp_source_0.set_center_freq(freq, 0)
+        self.uhd_usrp_source_0.set_antenna("TX/RX", 0)
+        self.uhd_usrp_source_0.set_gain(gain, 0)
         self.qtgui_freq_sink_x_0 = qtgui.freq_sink_c(
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
@@ -193,9 +207,6 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
             self.top_grid_layout.setRowStretch(r, 1)
         for c in range(0, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
-        self._gain_range = qtgui.Range(0, 76, 1, 60, 200)
-        self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
-        self.top_layout.addWidget(self._gain_win)
         self.freq_xlating_fir_filter_xxx_0 = filter.freq_xlating_fir_filter_ccc(1, rrc_taps, 0, samp_rate)
         self.digital_symbol_sync_xx_0 = digital.symbol_sync_cc(
             digital.TED_GARDNER,
@@ -213,12 +224,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         self.digital_mpsk_snr_est_cc_0 = digital.mpsk_snr_est_cc(2, 10000, 0.001)
         self.digital_linear_equalizer_0 = digital.linear_equalizer((2*samp_sym), 2, eq_alg, True, [ ], 'corr_est')
         self.digital_costas_loop_cc_0 = digital.costas_loop_cc((2*np.pi/100), (2**mod_ord), True)
-        self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_gr_complex*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
-        self.blocks_skiphead_0 = blocks.skiphead(gr.sizeof_gr_complex*1, n_skip)
         self.blocks_message_debug_0 = blocks.message_debug(True, gr.log_levels.info)
-        self.blocks_head_0 = blocks.head(gr.sizeof_gr_complex*1, n_save)
-        self.blocks_file_sink_0 = blocks.file_sink(gr.sizeof_gr_complex*1, file_rx, False)
-        self.blocks_file_sink_0.set_unbuffered(False)
         self.analog_agc2_xx_0 = analog.agc2_cc((1e-1), (1e-2), 3.0, 1.0, 65536)
 
 
@@ -228,22 +234,18 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         self.msg_connect((self.digital_probe_mpsk_snr_est_c_0, 'snr'), (self.qtgui_edit_box_msg_0, 'val'))
         self.msg_connect((self.qtgui_edit_box_msg_0, 'msg'), (self.blocks_message_debug_0, 'log'))
         self.connect((self.analog_agc2_xx_0, 0), (self.freq_xlating_fir_filter_xxx_0, 0))
-        self.connect((self.blocks_head_0, 0), (self.blocks_file_sink_0, 0))
-        self.connect((self.blocks_skiphead_0, 0), (self.blocks_head_0, 0))
-        self.connect((self.digital_costas_loop_cc_0, 0), (self.blocks_skiphead_0, 0))
         self.connect((self.digital_costas_loop_cc_0, 0), (self.qtgui_const_sink_x_0, 0))
         self.connect((self.digital_linear_equalizer_0, 0), (self.digital_mpsk_snr_est_cc_0, 0))
         self.connect((self.digital_linear_equalizer_0, 0), (self.digital_probe_mpsk_snr_est_c_0, 0))
         self.connect((self.digital_mpsk_snr_est_cc_0, 0), (self.digital_costas_loop_cc_0, 0))
         self.connect((self.digital_symbol_sync_xx_0, 0), (self.digital_linear_equalizer_0, 0))
         self.connect((self.freq_xlating_fir_filter_xxx_0, 0), (self.digital_symbol_sync_xx_0, 0))
-        self.connect((self.zeromq_sub_source_0, 0), (self.analog_agc2_xx_0, 0))
-        self.connect((self.zeromq_sub_source_0, 0), (self.blocks_throttle2_0, 0))
-        self.connect((self.zeromq_sub_source_0, 0), (self.qtgui_freq_sink_x_0, 0))
+        self.connect((self.uhd_usrp_source_0, 0), (self.analog_agc2_xx_0, 0))
+        self.connect((self.uhd_usrp_source_0, 0), (self.qtgui_freq_sink_x_0, 0))
 
 
     def closeEvent(self, event):
-        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qpsk_rx")
+        self.settings = Qt.QSettings("GNU Radio", "qpsk_rx")
         self.settings.setValue("geometry", self.saveGeometry())
         self.stop()
         self.wait()
@@ -255,7 +257,6 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
 
     def set_file_rx(self, file_rx):
         self.file_rx = file_rx
-        self.blocks_file_sink_0.open(self.file_rx)
 
     def get_freq(self):
         return self.freq
@@ -263,6 +264,8 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
     def set_freq(self, freq):
         self.freq = freq
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+        self.uhd_usrp_source_0.set_center_freq(self.freq, 0)
+        self.uhd_usrp_source_0.set_center_freq(self.freq, 1)
 
     def get_samp_rate_div(self):
         return self.samp_rate_div
@@ -300,8 +303,8 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         self.samp_rate = samp_rate
         self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
         self.set_sym_rate(self.samp_rate/self.samp_sym)
-        self.blocks_throttle2_0.set_sample_rate(self.samp_rate)
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+        self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
 
     def get_sym_rate(self):
         return self.sym_rate
@@ -350,7 +353,6 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
 
     def set_n_save(self, n_save):
         self.n_save = n_save
-        self.blocks_head_0.set_length(self.n_save)
 
     def get_mod_ord(self):
         return self.mod_ord
@@ -363,6 +365,8 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
 
     def set_gain(self, gain):
         self.gain = gain
+        self.uhd_usrp_source_0.set_gain(self.gain, 0)
+        self.uhd_usrp_source_0.set_gain(self.gain, 1)
 
     def get_eq_alg(self):
         return self.eq_alg
@@ -375,7 +379,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
 def argument_parser():
     parser = ArgumentParser()
     parser.add_argument(
-        "--file-rx", dest="file_rx", type=str, default="../data/qpsk.complex64",
+        "--file-rx", dest="file_rx", type=str, default="./data/qpsk.complex64",
         help="Set output rx file [default=%(default)r]")
     parser.add_argument(
         "--freq", dest="freq", type=eng_float, default=eng_notation.num_to_str(float(650e6)),
@@ -401,7 +405,6 @@ def main(top_block_cls=qpsk_rx, options=None):
     tb = top_block_cls(file_rx=options.file_rx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, zmq_addr=options.zmq_addr)
 
     tb.start()
-    tb.flowgraph_started.set()
 
     tb.show()
 

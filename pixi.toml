@@ -1,0 +1,23 @@
+[project]
+name = "optnet_ml"
+version = "0.1.0"
+description = "OptNET ML: Optical Signal Processing and Machine Learning Suite"
+authors = ["LAFI Lab <lafi@udea.edu.co>"]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = ">=3.10"
+numpy = ">=1.24"
+pandas = ">=2.0"
+matplotlib = ">=3.11.1,<4"
+seaborn = ">=0.12"
+tqdm = ">=4.65"
+pytest = ">=7.0"
+
+[tasks]
+demodulate-qpsk = "python3 -m qpsk_src.cli run"
+plot-results = "python3 -m qpsk_src.cli plot"
+compress-dataset = "python3 -m qpsk_src.cli compress"
+validate-dataset = "python3 -m qpsk_src.cli validate"
+test = "pytest tests/ -v"

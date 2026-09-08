@@ -15,10 +15,9 @@ from PyQt5 import QtCore
 from gnuradio import analog
 from gnuradio import blocks
 import pmt
-from gnuradio import channels
-from gnuradio.filter import firdes
 from gnuradio import digital
 from gnuradio import filter
+from gnuradio.filter import firdes
 from gnuradio import gr
 from gnuradio.fft import window
 import sys
@@ -27,7 +26,8 @@ from PyQt5 import Qt
 from argparse import ArgumentParser
 from gnuradio.eng_arg import eng_float, intx
 from gnuradio import eng_notation
-from gnuradio import zeromq
+from gnuradio import uhd
+import time
 import numpy as np
 import sip
 import threading
@@ -94,11 +94,38 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         # Blocks
         ##################################################
 
-        self._noise_range = qtgui.Range(0, 1, 0.01, 0.15, 200)
-        self._noise_win = qtgui.RangeWidget(self._noise_range, self.set_noise, "Sim: Noise Voltage", "counter_slider", float, QtCore.Qt.Horizontal)
-        self.top_layout.addWidget(self._noise_win)
-        self.zeromq_sub_source_0 = zeromq.sub_source(gr.sizeof_gr_complex, 1, zmq_addr, 5000, False, (-1), '', False)
-        self.zeromq_pub_sink_0 = zeromq.pub_sink(gr.sizeof_gr_complex, 1, zmq_addr, 100, False, (-1), '', True, True)
+        self._gain_range = qtgui.Range(0, 89.75, 0.25, 85, 200)
+        self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_layout.addWidget(self._gain_win)
+        self.uhd_usrp_source_0 = uhd.usrp_source(
+            ",".join(('', '')),
+            uhd.stream_args(
+                cpu_format="fc32",
+                args='',
+                channels=list(range(0,1)),
+            ),
+        )
+        self.uhd_usrp_source_0.set_samp_rate(samp_rate)
+        self.uhd_usrp_source_0.set_time_unknown_pps(uhd.time_spec(0))
+
+        self.uhd_usrp_source_0.set_center_freq(freq, 0)
+        self.uhd_usrp_source_0.set_antenna("RX2", 0)
+        self.uhd_usrp_source_0.set_gain(20, 0)
+        self.uhd_usrp_sink_0 = uhd.usrp_sink(
+            ",".join(('', '')),
+            uhd.stream_args(
+                cpu_format="fc32",
+                args='',
+                channels=list(range(0,1)),
+            ),
+            "",
+        )
+        self.uhd_usrp_sink_0.set_samp_rate(samp_rate)
+        # No synchronization enforced.
+
+        self.uhd_usrp_sink_0.set_center_freq(freq, 0)
+        self.uhd_usrp_sink_0.set_antenna("TX/RX", 0)
+        self.uhd_usrp_sink_0.set_gain(gain, 0)
         self.root_raised_cosine_filter_0 = filter.fir_filter_ccf(
             1,
             firdes.root_raised_cosine(
@@ -200,9 +227,9 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
             self.top_grid_layout.setRowStretch(r, 1)
         for c in range(0, 2):
             self.top_grid_layout.setColumnStretch(c, 1)
-        self._gain_range = qtgui.Range(0, 89.75, 0.25, 85, 200)
-        self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
-        self.top_layout.addWidget(self._gain_win)
+        self._noise_range = qtgui.Range(0, 1, 0.01, 0.15, 200)
+        self._noise_win = qtgui.RangeWidget(self._noise_range, self.set_noise, "Sim: Noise Voltage", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_layout.addWidget(self._noise_win)
         self.digital_symbol_sync_xx_0 = digital.symbol_sync_cc(
             digital.TED_EARLY_LATE,
             samp_sym,
@@ -216,14 +243,6 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
             128,
             [])
         self.digital_constellation_encoder_bc_0 = digital.constellation_encoder_bc(qpsk)
-        self.channels_channel_model_0 = channels.channel_model(
-            noise_voltage=noise,
-            frequency_offset=0.0,
-            epsilon=1.0,
-            taps=[1.0],
-            noise_seed=0,
-            block_tags=False)
-        self.blocks_throttle2_0 = blocks.throttle( gr.sizeof_char*1, samp_rate, True, 0 if "auto" == "auto" else max( int(float(0.1) * samp_rate) if "auto" == "time" else int(0.1), 1) )
         self.blocks_repeat_0 = blocks.repeat(gr.sizeof_gr_complex*1, samp_sym)
         self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(mod_ord)
         self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, file_tx, True, 0, 0)
@@ -238,15 +257,13 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.connect((self.analog_agc_xx_0, 0), (self.digital_symbol_sync_xx_0, 0))
         self.connect((self.blocks_add_const_vxx_0, 0), (self.blocks_pack_k_bits_bb_0, 0))
         self.connect((self.blocks_file_source_0, 0), (self.blocks_add_const_vxx_0, 0))
-        self.connect((self.blocks_file_source_0, 0), (self.blocks_throttle2_0, 0))
         self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.digital_constellation_encoder_bc_0, 0))
         self.connect((self.blocks_repeat_0, 0), (self.root_raised_cosine_filter_0, 0))
-        self.connect((self.channels_channel_model_0, 0), (self.zeromq_pub_sink_0, 0))
         self.connect((self.digital_constellation_encoder_bc_0, 0), (self.blocks_repeat_0, 0))
         self.connect((self.digital_symbol_sync_xx_0, 0), (self.qtgui_const_sink_x_0, 0))
-        self.connect((self.root_raised_cosine_filter_0, 0), (self.channels_channel_model_0, 0))
-        self.connect((self.zeromq_sub_source_0, 0), (self.analog_agc_xx_0, 0))
-        self.connect((self.zeromq_sub_source_0, 0), (self.qtgui_freq_sink_x_0, 0))
+        self.connect((self.root_raised_cosine_filter_0, 0), (self.uhd_usrp_sink_0, 0))
+        self.connect((self.uhd_usrp_source_0, 0), (self.analog_agc_xx_0, 0))
+        self.connect((self.uhd_usrp_source_0, 0), (self.qtgui_freq_sink_x_0, 0))
 
 
     def closeEvent(self, event):
@@ -270,6 +287,8 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
     def set_freq(self, freq):
         self.freq = freq
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+        self.uhd_usrp_sink_0.set_center_freq(self.freq, 0)
+        self.uhd_usrp_source_0.set_center_freq(self.freq, 0)
 
     def get_samp_rate_div(self):
         return self.samp_rate_div
@@ -309,9 +328,10 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.samp_rate = samp_rate
         self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
         self.set_sym_rate(self.samp_rate/self.samp_sym)
-        self.blocks_throttle2_0.set_sample_rate(self.samp_rate)
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
+        self.uhd_usrp_sink_0.set_samp_rate(self.samp_rate)
+        self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
 
     def get_sym_rate(self):
         return self.sym_rate
@@ -346,7 +366,6 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 
     def set_noise(self, noise):
         self.noise = noise
-        self.channels_channel_model_0.set_noise_voltage(self.noise)
 
     def get_mod_ord(self):
         return self.mod_ord
@@ -360,6 +379,7 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 
     def set_gain(self, gain):
         self.gain = gain
+        self.uhd_usrp_sink_0.set_gain(self.gain, 0)
 
 
 
