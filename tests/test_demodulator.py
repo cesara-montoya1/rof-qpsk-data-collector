@@ -35,6 +35,24 @@ def test_demodulate_known_symbols():
     assert np.array_equal(bits, expected)
 
 
+def test_demodulate_noisy_equivalence():
+    """Verify that demodulate_qpsk matches minimum Euclidean distance for arbitrary noisy samples."""
+    np.random.seed(42)
+    # Generate 10000 noisy samples across all quadrants
+    samples = (np.random.randn(10000) + 1j * np.random.randn(10000)).astype(np.complex128)
+    
+    # Reference Euclidean distance computation
+    distances = np.abs(samples[:, None] - QPSK_CONSTELLATION[None, :])
+    indices = np.argmin(distances, axis=1)
+    ref_bits = np.zeros(len(indices) * 2, dtype=int)
+    ref_bits[0::2] = (indices >> 1) & 1
+    ref_bits[1::2] = indices & 1
+
+    actual_bits = demodulate_qpsk(samples)
+    assert np.array_equal(actual_bits, ref_bits)
+
+
+
 def test_sync_signals_perfect_match():
     """Test sync_signals when rx matches tx with a positive delay."""
     bits = np.random.randint(0, 2, 200)

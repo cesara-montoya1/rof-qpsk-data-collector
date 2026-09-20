@@ -39,7 +39,9 @@ def load_existing_results(
 
 
 def save_results_safely(
-    csv_path: Union[Path, str], results_list: List[Dict[str, Any]]
+    csv_path: Union[Path, str],
+    results_list: List[Dict[str, Any]],
+    allow_empty: bool = False,
 ) -> None:
     """
     Safely saves results to a CSV file using temporary write and atomic replacement.
@@ -48,8 +50,11 @@ def save_results_safely(
     Args:
         csv_path: Target CSV file path.
         results_list: List of result dictionaries to save.
+        allow_empty: If False, does not overwrite an existing file if results_list is empty.
     """
     path = Path(csv_path)
+    if not results_list and path.exists() and not allow_empty:
+        return
     path.parent.mkdir(parents=True, exist_ok=True)
 
     bak_path = path.with_name(path.name + ".bak")

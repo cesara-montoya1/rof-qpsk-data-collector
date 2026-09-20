@@ -111,7 +111,7 @@ def run_pipeline(
                         existing_rec["detected_delay"] = sig_res["detected_delay"]
                 else:
                     # Brand new record: extract metadata and append
-                    meta = parse_filename_metadata(filename)
+                    meta = parse_filename_metadata(filename, fallback_on_missing=True)
                     record = {
                         "launch_power_dbm": meta["launch_power_dbm"],
                         "distance_km": meta["distance_km"],

@@ -70,3 +70,17 @@ def test_save_results_safely_second_write_backup_created(tmp_path):
     curr_results, curr_processed = load_existing_results(csv_file)
     assert len(curr_results) == 2
     assert curr_processed == {"sig1.complex64", "sig2.complex64"}
+
+
+def test_save_results_safely_empty_preserves_existing(tmp_path):
+    """Saving an empty list on an existing file should not wipe out data without explicit permission."""
+    csv_file = tmp_path / "results.csv"
+    initial_data = [{"filename": "sig1.complex64", "ber": "0.01"}]
+    save_results_safely(csv_file, initial_data)
+
+    # Calling save with empty list and allow_empty=False (default) should preserve file
+    save_results_safely(csv_file, [], allow_empty=False)
+    results, _ = load_existing_results(csv_file)
+    assert len(results) == 1
+    assert results[0]["filename"] == "sig1.complex64"
+

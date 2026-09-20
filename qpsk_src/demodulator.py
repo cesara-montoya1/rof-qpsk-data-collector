@@ -10,8 +10,15 @@ from .evm import compute_evm
 # 01 -> -0.707 + 0.707j
 # 10 -> -0.707 - 0.707j
 # 11 -> 0.707 - 0.707j
+INV_SQRT2 = float(1.0 / np.sqrt(2.0))
 QPSK_CONSTELLATION = np.array(
-    [0.707 + 0.707j, -0.707 + 0.707j, -0.707 - 0.707j, 0.707 - 0.707j]
+    [
+        INV_SQRT2 + 1j * INV_SQRT2,
+        -INV_SQRT2 + 1j * INV_SQRT2,
+        -INV_SQRT2 - 1j * INV_SQRT2,
+        INV_SQRT2 - 1j * INV_SQRT2,
+    ],
+    dtype=np.complex128,
 )
 
 
@@ -46,7 +53,13 @@ def modulate_qpsk(bits: np.ndarray) -> np.ndarray:
 
 def demodulate_qpsk(signal: np.ndarray) -> np.ndarray:
     """
-    Demodulates a 1D array of complex QPSK samples into bits using Minimum Distance decision.
+    Demodulates a 1D array of complex QPSK samples into bits using optimal quadrant decision.
+
+    Bit mapping matches QPSK constellation:
+    - Q1 (I >= 0, Q >= 0) -> 00
+    - Q2 (I < 0,  Q >= 0) -> 01
+    - Q3 (I < 0,  Q < 0)  -> 10
+    - Q4 (I >= 0, Q < 0)  -> 11
 
     Args:
         signal: 1D numpy array of complex QPSK samples.
@@ -54,16 +67,16 @@ def demodulate_qpsk(signal: np.ndarray) -> np.ndarray:
     Returns:
         1D numpy array of bits (0 or 1).
     """
-    sig_arr = np.asarray(signal, dtype=np.complex128)
+    sig_arr = np.asarray(signal)
     if len(sig_arr) == 0:
         return np.array([], dtype=int)
 
-    distances = np.abs(sig_arr[:, None] - QPSK_CONSTELLATION[None, :])
-    indices = np.argmin(distances, axis=1)
+    real_neg = sig_arr.real < 0
+    imag_neg = sig_arr.imag < 0
 
-    bits = np.zeros(len(indices) * 2, dtype=int)
-    bits[0::2] = (indices >> 1) & 1
-    bits[1::2] = indices & 1
+    bits = np.empty(len(sig_arr) * 2, dtype=int)
+    bits[0::2] = imag_neg
+    bits[1::2] = imag_neg ^ real_neg
     return bits
 
 
@@ -106,11 +119,40 @@ def sync_signals(
     return tx_sync, rx_sync, delay
 
 
+def sync_signals_complex(
+    tx: np.ndarray, rx: np.ndarray, eps: float = 1e-9
+) -> Tuple[np.ndarray, np.ndarray, int]:
+    """
+    Synchronizes tx and rx signals using complex cross-correlation magnitude.
+    Delay estimation is robust against carrier phase offset.
+    """
+    if len(tx) == 0 or len(rx) == 0:
+        return np.array([], dtype=np.complex128), np.array([], dtype=np.complex128), 0
+
+    tx_norm = (tx - np.mean(tx)) / (np.std(tx) + eps)
+    rx_norm = (rx - np.mean(rx)) / (np.std(rx) + eps)
+
+    # Complex cross-correlation magnitude peak is phase-invariant
+    corr = np.correlate(rx_norm, tx_norm, mode="full")
+    total_corr = np.abs(corr)
+
+    lags = np.arange(-len(tx) + 1, len(rx))
+    delay = int(lags[np.argmax(total_corr)])
+
+    if delay < 0:
+        rx_sync = rx[0 : len(tx) + delay]
+        tx_sync = tx[-delay : -delay + len(rx_sync)]
+    else:
+        rx_sync = rx[delay : delay + len(tx)]
+        tx_sync = tx[: len(rx_sync)]
+
+    return tx_sync, rx_sync, delay
+
+
 def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
     """
-    Sweeps phase rotations (1, 1j, -1, -1j) to find the best phase alignment
-    producing the minimum Bit Error Rate (BER) and detected delay, and computes
-    Error Vector Magnitude (EVM) on the synchronized optimal signal.
+    Finds the optimal delay and phase rotation (1, 1j, -1, -1j) producing
+    the minimum Bit Error Rate (BER), and computes Error Vector Magnitude (EVM).
 
     Args:
         tx_ref: 1D complex array of transmitted reference symbols.
@@ -132,14 +174,25 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
     best_tx_s = None
     best_rx_s = None
 
+    if len(tx_ref) == 0 or len(rx_signal) == 0:
+        return {
+            "ber": 1.0,
+            "detected_delay": 0,
+            "phase_rotation": complex(1),
+            "evm_rms_pct": float("nan"),
+            "evm_db": float("nan"),
+            "evm_peak_pct": float("nan"),
+        }
+
+    tx_s, rx_s, delay = sync_signals_complex(tx_ref, rx_signal)
+    b_ref = demodulate_qpsk(tx_s)
+    n_ref = len(b_ref)
+
     for rot in rotations:
-        rx_rotated = rx_signal * rot
-        tx_s, rx_s, delay = sync_signals(tx_ref, rx_rotated)
+        rx_rotated = rx_s * rot
+        b_rx = demodulate_qpsk(rx_rotated)
 
-        b_ref = demodulate_qpsk(tx_s)
-        b_rx = demodulate_qpsk(rx_s)
-
-        n = min(len(b_ref), len(b_rx))
+        n = min(n_ref, len(b_rx))
         if n == 0:
             continue
 
@@ -149,7 +202,7 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
             best_delay = delay
             best_rotation = rot
             best_tx_s = tx_s
-            best_rx_s = rx_s
+            best_rx_s = rx_rotated
 
     if best_tx_s is not None and best_rx_s is not None and len(best_tx_s) > 0 and len(best_rx_s) > 0:
         n_sym = min(len(best_tx_s), len(best_rx_s))
@@ -169,3 +222,4 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
         "evm_db": evm_res["evm_db"],
         "evm_peak_pct": evm_res["evm_peak_pct"],
     }
+

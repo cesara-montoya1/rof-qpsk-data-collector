@@ -35,50 +35,48 @@ def load_and_prepare_data(csv_path: Union[Path, str]):
     return df.dropna(subset=["distance_km"])
 
 
-def plot_ber_curve(
+def _plot_metric_curve(
     df,
     x_col: str,
+    y_col: str,
     x_label: str,
+    y_label: str,
     title: str,
     output_file: Path,
     shaded: bool = False,
+    log_y: bool = False,
 ) -> Path:
-    """Plots BER vs Metric (SNR or OSNR) for each distance.
-
-    Args:
-        df: Processed pandas DataFrame.
-        x_col: Column name for X-axis ('snr_db' or 'osnr_db').
-        x_label: Label for X-axis.
-        title: Plot title.
-        output_file: Output PNG filepath.
-        shaded: If True, draws shaded min-max envelope around the mean.
-
-    Returns:
-        Path to saved PNG image.
-    """
+    """Generic helper to plot a metric vs X (SNR/OSNR) for each distance."""
     import matplotlib
-    matplotlib.use("Agg")  # Non-interactive backend for headless execution
+    matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
-    if x_col not in df.columns or df[x_col].dropna().empty:
-        print(f"Skipping plot {output_file.name}: Column '{x_col}' has no valid data.")
+    if (
+        x_col not in df.columns
+        or y_col not in df.columns
+        or df[x_col].dropna().empty
+        or df[y_col].dropna().empty
+    ):
+        return output_file
+
+    valid_df = df.dropna(subset=[x_col, y_col])
+    if valid_df.empty:
         return output_file
 
     fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
-    distances = sorted(df["distance_km"].unique())
+    distances = sorted(valid_df["distance_km"].unique())
     colors = plt.cm.tab10(np.linspace(0, 1, max(len(distances), 1)))
     markers = ["o", "s", "^", "d", "v", "<", ">", "p", "*"]
 
     for idx, dist in enumerate(distances):
-        dist_df = df[df["distance_km"] == dist]
+        dist_df = valid_df[valid_df["distance_km"] == dist]
         if dist_df.empty:
             continue
 
-        # Group by metric and calculate stats
         stats = (
-            dist_df.groupby(x_col)["ber"]
-            .agg(mean_ber="mean", min_ber="min", max_ber="max", count="count")
+            dist_df.groupby(x_col)[y_col]
+            .agg(mean_val="mean", min_val="min", max_val="max", count="count")
             .reset_index()
             .sort_values(by=x_col)
         )
@@ -87,10 +85,9 @@ def plot_ber_curve(
         marker = markers[idx % len(markers)]
         label = f"{dist:.1f} km" if dist != int(dist) else f"{int(dist)} km"
 
-        # Plot mean line
         ax.plot(
             stats[x_col],
-            stats["mean_ber"],
+            stats["mean_val"],
             label=label,
             color=color,
             marker=marker,
@@ -98,21 +95,20 @@ def plot_ber_curve(
             markersize=6,
         )
 
-        # Draw shaded envelope if requested
         if shaded:
             ax.fill_between(
                 stats[x_col],
-                stats["min_ber"],
-                stats["max_ber"],
+                stats["min_val"],
+                stats["max_val"],
                 color=color,
                 alpha=0.25,
             )
 
-    has_positive = (df["ber"] > 0).any() if "ber" in df.columns else False
-    if has_positive:
+    if log_y:
         ax.set_yscale("log", nonpositive="clip")
+
     ax.set_xlabel(x_label, fontsize=12, fontweight="bold")
-    ax.set_ylabel("Bit Error Rate (BER)", fontsize=12, fontweight="bold")
+    ax.set_ylabel(y_label, fontsize=12, fontweight="bold")
     ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
     ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
     ax.legend(title="Distance", fontsize=10, title_fontsize=11, loc="best")
@@ -123,6 +119,30 @@ def plot_ber_curve(
     plt.close(fig)
 
     return output_file
+
+
+def plot_ber_curve(
+    df,
+    x_col: str,
+    x_label: str,
+    title: str,
+    output_file: Path,
+    shaded: bool = False,
+) -> Path:
+    """Plots BER vs Metric (SNR or OSNR) for each distance."""
+    has_positive = (df["ber"] > 0).any() if "ber" in df.columns else False
+    return _plot_metric_curve(
+        df=df,
+        x_col=x_col,
+        y_col="ber",
+        x_label=x_label,
+        y_label="Bit Error Rate (BER)",
+        title=title,
+        output_file=output_file,
+        shaded=shaded,
+        log_y=has_positive,
+    )
+
 
 
 def generate_ber_plots(
@@ -207,90 +227,19 @@ def plot_evm_curve(
     output_file: Path,
     shaded: bool = False,
 ) -> Path:
-    """Plots EVM vs Metric (SNR or OSNR) for each distance.
+    """Plots EVM vs Metric (SNR or OSNR) for each distance."""
+    return _plot_metric_curve(
+        df=df,
+        x_col=x_col,
+        y_col=y_col,
+        x_label=x_label,
+        y_label=y_label,
+        title=title,
+        output_file=output_file,
+        shaded=shaded,
+        log_y=False,
+    )
 
-    Args:
-        df: Processed pandas DataFrame.
-        x_col: Column name for X-axis ('snr_db' or 'osnr_db').
-        x_label: Label for X-axis.
-        y_col: Column name for Y-axis ('evm_db' or 'evm_rms_pct').
-        y_label: Label for Y-axis.
-        title: Plot title.
-        output_file: Output PNG filepath.
-        shaded: If True, draws shaded min-max envelope around the mean.
-
-    Returns:
-        Path to saved PNG image.
-    """
-    import matplotlib
-    matplotlib.use("Agg")
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    if (
-        x_col not in df.columns
-        or y_col not in df.columns
-        or df[x_col].dropna().empty
-        or df[y_col].dropna().empty
-    ):
-        return output_file
-
-    valid_df = df.dropna(subset=[x_col, y_col])
-    if valid_df.empty:
-        return output_file
-
-    fig, ax = plt.subplots(figsize=(8, 6), dpi=150)
-    distances = sorted(valid_df["distance_km"].unique())
-    colors = plt.cm.tab10(np.linspace(0, 1, max(len(distances), 1)))
-    markers = ["o", "s", "^", "d", "v", "<", ">", "p", "*"]
-
-    for idx, dist in enumerate(distances):
-        dist_df = valid_df[valid_df["distance_km"] == dist]
-        if dist_df.empty:
-            continue
-
-        stats = (
-            dist_df.groupby(x_col)[y_col]
-            .agg(mean_val="mean", min_val="min", max_val="max", count="count")
-            .reset_index()
-            .sort_values(by=x_col)
-        )
-
-        color = colors[idx % len(colors)]
-        marker = markers[idx % len(markers)]
-        label = f"{dist:.1f} km" if dist != int(dist) else f"{int(dist)} km"
-
-        ax.plot(
-            stats[x_col],
-            stats["mean_val"],
-            label=label,
-            color=color,
-            marker=marker,
-            linewidth=2,
-            markersize=6,
-        )
-
-        if shaded:
-            ax.fill_between(
-                stats[x_col],
-                stats["min_val"],
-                stats["max_val"],
-                color=color,
-                alpha=0.25,
-            )
-
-    ax.set_xlabel(x_label, fontsize=12, fontweight="bold")
-    ax.set_ylabel(y_label, fontsize=12, fontweight="bold")
-    ax.set_title(title, fontsize=14, fontweight="bold", pad=12)
-    ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.7)
-    ax.legend(title="Distance", fontsize=10, title_fontsize=11, loc="best")
-
-    plt.tight_layout()
-    output_file.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_file)
-    plt.close(fig)
-
-    return output_file
 
 
 def generate_evm_plots(

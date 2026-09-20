@@ -1,3 +1,4 @@
+import numpy as np
 import pytest
 from pathlib import Path
 import sys
@@ -45,3 +46,14 @@ def test_extract_value_custom_and_errors():
 
     with pytest.raises(ValueError, match="Pattern '.*' not found"):
         extract_value(r"(\d+)GHz", "900MHz")
+
+
+def test_parse_filename_metadata_fallback():
+    """Missing fields should produce NaN when fallback is enabled instead of raising ValueError."""
+    filename_missing_osnr = "rof_0dBm_0km_650mhz_2mbps_snr3p38dB.complex64"
+    meta = parse_filename_metadata(filename_missing_osnr, fallback_on_missing=True)
+    assert meta["launch_power_dbm"] == pytest.approx(0.0)
+    assert meta["distance_km"] == pytest.approx(0.0)
+    assert meta["osnr_db"] is None or np.isnan(meta["osnr_db"])
+    assert meta["snr_db"] == pytest.approx(3.38)
+
