@@ -123,27 +123,36 @@ def sync_signals_complex(
     tx: np.ndarray, rx: np.ndarray, eps: float = 1e-9
 ) -> Tuple[np.ndarray, np.ndarray, int]:
     """
-    Synchronizes tx and rx signals using complex cross-correlation magnitude.
-    Delay estimation is robust against carrier phase offset.
+    Synchronizes tx and rx signals using fast FFT complex cross-correlation magnitude.
+    Delay estimation is robust against carrier phase offset and runs in O(N log N).
     """
-    if len(tx) == 0 or len(rx) == 0:
+    n_tx, n_rx = len(tx), len(rx)
+    if n_tx == 0 or n_rx == 0:
         return np.array([], dtype=np.complex128), np.array([], dtype=np.complex128), 0
 
     tx_norm = (tx - np.mean(tx)) / (np.std(tx) + eps)
     rx_norm = (rx - np.mean(rx)) / (np.std(rx) + eps)
 
-    # Complex cross-correlation magnitude peak is phase-invariant
-    corr = np.correlate(rx_norm, tx_norm, mode="full")
-    total_corr = np.abs(corr)
+    # FFT-based cross correlation O(N log N)
+    conv_len = n_rx + n_tx - 1
+    fft_len = 1 << conv_len.bit_length()
 
-    lags = np.arange(-len(tx) + 1, len(rx))
+    fft_rx = np.fft.fft(rx_norm, fft_len)
+    fft_tx = np.fft.fft(tx_norm, fft_len)
+    corr_fft = np.fft.ifft(fft_rx * np.conj(fft_tx))
+
+    # Unwrap circular lags: negative lags [- (n_tx-1) .. -1] then positive [0 .. n_rx-1]
+    corr_full = np.concatenate([corr_fft[fft_len - (n_tx - 1) :], corr_fft[:n_rx]])
+    total_corr = np.abs(corr_full)
+
+    lags = np.arange(-n_tx + 1, n_rx)
     delay = int(lags[np.argmax(total_corr)])
 
     if delay < 0:
-        rx_sync = rx[0 : len(tx) + delay]
+        rx_sync = rx[0 : n_tx + delay]
         tx_sync = tx[-delay : -delay + len(rx_sync)]
     else:
-        rx_sync = rx[delay : delay + len(tx)]
+        rx_sync = rx[delay : delay + n_tx]
         tx_sync = tx[: len(rx_sync)]
 
     return tx_sync, rx_sync, delay
