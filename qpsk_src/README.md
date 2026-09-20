@@ -2,20 +2,21 @@
 
 A modular Python automation framework designed for **Radio-over-Fiber (RoF)** experimental data acquisition. This tool orchestrates GNU Radio flowgraphs to capture QPSK modulated signals, calculates real-time SNR, and manages experimental datasets with high precision.
 
+---
+
 ## 📁 Repository Structure
 
 ```text
-rof-qpsk-data-collector/
-├── data/               # Static data (tx.txt) and result exports
+qpsk_src/
+├── data/               # Static reference data (tx.txt)
 ├── grc/                # GNU Radio Companion flowgraphs and compiled .py scripts
 ├── src/                # Core automation logic
-│   ├── main.py         # Main entry point (Orchestrator)
-│   ├── runner.py       # GRC process management & Heartbeat logic
-│   └── file_manager.py # Dynamic naming
-└── tools/              # Post-processing & Utility scripts
-    ├── ber_count.py    # QPSK BER Analysis
-    └── generate_tx.py  # Dynamic PRBS LFSR Generator
-
+│   ├── main.py         # Main orchestrator (--repeat, --retries, --cooldown)
+│   ├── runner.py       # GRC process management, synchronous teardown & USB reset
+│   └── file_manager.py # Naming convention and collision avoidance
+└── tools/              # Post-processing & utility scripts
+    ├── ber_count_qpsk.py # Single-file QPSK BER/EVM and constellation analyzer
+    └── generate_tx.py    # PRBS generator using streaming binary chunks
 ```
 
 ---
@@ -24,35 +25,40 @@ rof-qpsk-data-collector/
 
 ### 1. Prerequisites
 
-* **GNU Radio 3.8+** (with ZMQ blocks)
+* **GNU Radio 3.8+** (with ZMQ and UHD blocks)
 * **Python 3.11+**
+* Connected USRP device (Ettus Research B200/B210/B200mini, NI USRP series)
 
-### 2. Generate Transmission Data
+### 2. Generate Transmission Reference Bits
 
-Before running an experiment, generate a PRBS sequence. For example, a PRBS17 (131,071 bits):
+Generate a PRBS sequence using the streaming generator (e.g. PRBS17 = 131,071 bits):
 
 ```bash
-python tools/generate_tx.py --order 17 --output data/tx.txt
-
+python3 tools/generate_tx.py --order 17 --output data/tx.txt
 ```
 
-### 3. Running an Experiment
+### 3. Running an Experiment (Automated Capture with Auto-Recovery)
 
-The orchestrator manages the GRC execution, monitors SNR via ZMQ, and renames the output based on physical parameters.
+Instead of using error-prone bash loops that cause USB collisions and `No devices found` errors, use the built-in `--repeat` and `--cooldown` parameters:
 
 ```bash
-python src/main.py \
-    --osnr 25.5 \
+# Capture 10 consecutive files at 650 MHz, OSNR 32.5 dB, 20 km distance:
+python3 src/main.py \
+    --osnr 32.5 \
     --distance 20 \
     --power 0 \
     --freq 650 \
-    --samp-rate-div 1 \
-    --samp-sym 16 \
+    --repeat 10 \
+    --cooldown 2.0 \
+    --retries 3 \
     --move ../data/results
-
 ```
 
-**NOTE:** If you're in a laboratory with USRP hardware, manually open the GRC flowgraphs and disable the ZMQ blocks while enabling the USRP blocks.
+#### 🛡️ USRP Hardware Teardown & Auto-Recovery:
+- **`--repeat N`**: Executes $N$ captures sequentially without exiting the Python process.
+- **`--cooldown T`**: Waits $T$ seconds (recommended: 2.0s) between iterations to guarantee `libusb` and the Linux kernel cleanly release the USRP device handle.
+- **`--retries R`**: If a transient `RuntimeError: LookupError: KeyError: No devices found for -----> Empty Device Address` occurs, the runner initiates a **software USB bus reset** via `ioctl(USBDEVFS_RESET)` on the USRP port, emulating a physical disconnect/reconnect automatically.
+- **`--usrp-args "..."`**: Allows specifying explicit USRP device parameters (e.g., `--usrp-args "type=b200"` or serial number).
 
 ---
 
@@ -62,42 +68,44 @@ The system uses a strict naming convention to ensure datasets are self-describin
 
 `rof_{Power}dBm_{Dist}km_osnr{OSNR}dB_{Freq}mhz_{Mbps}mbps_snr{MeasuredSNR}dB.complex64`
 
-* **Mbps Calculation:** Based on a 15 MHz base clock.
-* **Collision Avoidance:** If a file with the same measured SNR exists, the script applies a tiny SNR jitter (±dB) to the filename to prevent overwriting.
+* **Mbps Calculation:** Based on base clock and samples per symbol.
+* **Collision Avoidance:** If a file with the exact same measured SNR exists, the script applies a micro-jitter to the filename to prevent accidental overwrites.
 
 ---
 
-## 🔍 Analysis Tools
+## 🔍 Single-File Exploratory Analysis (`tools/ber_count_qpsk.py`)
 
-### BER & Phase Analysis
-
-Since carrier recovery can lock in four different phases (0°, 90°, 180°, 270°), the analysis tool correlates all four rotations to find the best match.
+To inspect a single captured signal file without running the full dataset pipeline:
 
 ```bash
-python tools/ber_count.py --tx data/tx.txt --rx data/your_file.complex64
-
+python3 tools/ber_count_qpsk.py \
+    --tx data/tx.txt \
+    --rx ../data/results/your_file.complex64 \
+    --skip-initial-symbols 500 \
+    --best-window-symbols 5000 \
+    --output report.png
 ```
 
-**Features:**
-
-* **Correlation Map:** Identifies synchronization peaks.
-* **Cumulative Error Plot:** Distinguishes between **Random Noise** (linear slope) and **Burst Errors** (vertical steps).
-* **Constellation Diagram:** Visualizes signal quality for the best phase rotation.
+**Output Panels:**
+1. **BER across 90° Rotations:** Visualizes bit error rates for all 4 possible carrier phase locks ($0^\circ, 90^\circ, 180^\circ, 270^\circ$).
+2. **Cumulative Error Plot:** Distinguishes between **Uniform Random Noise** (constant diagonal slope) and **Burst Errors** (sharp vertical steps).
+3. **Constellation Diagram:** Displays synchronized received symbols against ideal QPSK coordinates, reporting both RMS EVM and best-window EVM.
 
 ---
 
-## ⚙️ Configuration
+## ⚙️ Configuration Parameters
 
 | Parameter | Default | Description |
-| --- | --- | --- |
-| `--freq` | **Required** | Center Frequency in MHz. |
-| `--samp-rate-div` | `1` | Decimation factor for the 15MHz clock. |
+| :--- | :--- | :--- |
+| `--freq` | **Required** | Center frequency in MHz (e.g. 650, 900, 1200). |
+| `--osnr` | `0.0` | Optical Signal-to-Noise Ratio (dB) setpoint. |
+| `--distance`| `0.0` | Optical fiber length in km. |
+| `--power` | `0.0` | Launch power in dBm. |
+| `--repeat` | `1` | Number of consecutive captures to perform. |
+| `--cooldown`| `2.0` | Cooldown pause (seconds) between captures. |
+| `--retries` | `3` | Max recovery retries upon USRP `LookupError`. |
+| `--usrp-args`| `""` | Extra device arguments passed to UHD (e.g. `serial=...`). |
+| `--samp-rate-div` | `1` | Decimation factor for the 15 MHz clock. |
 | `--samp-sym` | `16` | Samples per symbol (SPS). |
-| `--zmq-addr` | `tcp://0.0.0.0:18305` | ZMQ Source for SNR messages. |
-| `--move` | `""` | Destination folder. If empty, file is not renamed/moved. |
-
----
-
-### Contribution & License
-
-This project is designed for laboratory research. Feel free to open an issue for new modulation support.
+| `--zmq-addr` | `tcp://0.0.0.0:18305` | ZMQ endpoint for SNR heartbeat messages. |
+| `--move` | `""` | Destination folder for renamed files. |
