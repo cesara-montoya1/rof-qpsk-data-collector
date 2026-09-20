@@ -25,6 +25,17 @@ def test_validate_dataset_dir_valid(tmp_path):
     assert folder_names == ["0km", "0p5km", "20km"]
 
 
+def test_validate_dataset_dir_numerical_order(tmp_path):
+    """Verify distance folders are sorted numerically, not lexicographically (e.g. 2km before 20km)."""
+    folders = ["20km", "2km", "0km", "10km", "0p5km"]
+    for f in folders:
+        (tmp_path / f).mkdir()
+
+    distance_folders = validate_dataset_dir(tmp_path)
+    folder_names = [f.name for f in distance_folders]
+    assert folder_names == ["0km", "0p5km", "2km", "10km", "20km"]
+
+
 def test_validate_dataset_dir_invalid(tmp_path):
     (tmp_path / "invalid_subfolder").mkdir()
     with pytest.raises(ValueError, match="No valid distance folders"):

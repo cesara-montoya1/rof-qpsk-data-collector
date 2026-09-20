@@ -30,4 +30,8 @@ def validate_dataset_dir(dataset_dir: Path | str) -> List[Path]:
             f"No valid distance folders (e.g. 0km, 2km, 20km) found directly inside: {path}"
         )
 
-    return sorted(matching_folders, key=lambda p: p.name)
+    def _distance_key(folder: Path) -> float:
+        m = DISTANCE_PATTERN.match(folder.name)
+        return float(m.group(1).replace("p", ".").replace("P", ".")) if m else float("inf")
+
+    return sorted(matching_folders, key=_distance_key)

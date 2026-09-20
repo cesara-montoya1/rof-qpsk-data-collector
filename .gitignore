@@ -31,7 +31,7 @@ coverage.xml
 # Results, heavy datasets & raw signals (DO NOT TRACK)
 results/
 old_db/
-data/
+/data/
 *.complex64
 *.npz
 *.csv
@@ -39,7 +39,9 @@ data/
 *.dat
 *.log
 
-# Allow reference transmission pattern if needed
+# Reference transmission pattern
+!qpsk_src/data/
+qpsk_src/data/*
 !qpsk_src/data/tx.txt
 
 # Generated plots & graphics (DO NOT TRACK)
