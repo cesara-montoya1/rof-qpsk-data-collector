@@ -13,7 +13,14 @@ from .demodulator import (
 )
 from .evm import compute_evm, compute_theoretical_evm_from_snr
 from .pipeline import load_tx_reference, run_pipeline
-from .plotter import generate_all_plots, generate_ber_plots, generate_evm_plots
+from .plotter import (
+    generate_all_plots,
+    generate_ber_plots,
+    generate_evm_plots,
+    plot_ber_curve,
+    plot_constellation,
+    plot_evm_curve,
+)
 
 __all__ = [
     "validate_dataset_dir",
@@ -34,4 +41,7 @@ __all__ = [
     "generate_ber_plots",
     "generate_evm_plots",
     "generate_all_plots",
+    "plot_ber_curve",
+    "plot_evm_curve",
+    "plot_constellation",
 ]

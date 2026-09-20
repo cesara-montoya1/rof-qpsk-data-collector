@@ -37,6 +37,8 @@ def run_pipeline(
     dataset_dir: Path | str,
     tx_ref_path: Path | str,
     output_csv_path: Optional[Path | str] = None,
+    skip_initial_symbols: int = 0,
+    best_window_symbols: Optional[int] = None,
 ) -> Path:
     """
     Runs the complete QPSK processing and demodulation pipeline on a dataset directory.
@@ -54,6 +56,8 @@ def run_pipeline(
         dataset_dir: Path to dataset directory.
         tx_ref_path: Path to reference TX bit file.
         output_csv_path: Optional path for output CSV file.
+        skip_initial_symbols: Number of warm-up symbols to ignore (default: 0).
+        best_window_symbols: Optional block size to find best EVM window (default: None).
 
     Returns:
         Path to the output CSV file.
@@ -82,6 +86,10 @@ def run_pipeline(
             return False
         if evm_val is None or str(evm_val).strip().lower() in ("", "nan", "none"):
             return False
+        if best_window_symbols is not None:
+            best_evm_val = rec.get("evm_best_rms_pct")
+            if best_evm_val is None or str(best_evm_val).strip().lower() in ("", "nan", "none"):
+                return False
         return True
 
     for dist_folder in distance_folders:
@@ -98,13 +106,22 @@ def run_pipeline(
                     continue
 
                 rx_signal = npz_data[filename]
-                sig_res = process_signal(tx_ref, rx_signal)
+                sig_res = process_signal(
+                    tx_ref,
+                    rx_signal,
+                    skip_initial_symbols=skip_initial_symbols,
+                    best_window_symbols=best_window_symbols,
+                )
 
                 if existing_rec is not None:
                     # Update existing record in-place with EVM metrics (and any missing BER/delay)
                     existing_rec["evm_rms_pct"] = sig_res["evm_rms_pct"]
                     existing_rec["evm_db"] = sig_res["evm_db"]
                     existing_rec["evm_peak_pct"] = sig_res["evm_peak_pct"]
+                    if sig_res.get("evm_best_rms_pct") is not None:
+                        existing_rec["evm_best_rms_pct"] = sig_res["evm_best_rms_pct"]
+                        existing_rec["evm_best_db"] = sig_res["evm_best_db"]
+                        existing_rec["evm_delta_rms_pct"] = sig_res["evm_delta_rms_pct"]
                     if existing_rec.get("ber") in (None, "", "nan", "None"):
                         existing_rec["ber"] = sig_res["ber"]
                     if existing_rec.get("detected_delay") in (None, "", "nan", "None"):
@@ -127,6 +144,10 @@ def run_pipeline(
                         "evm_peak_pct": sig_res["evm_peak_pct"],
                         "npz_source": str(npz_path.name),
                     }
+                    if sig_res.get("evm_best_rms_pct") is not None:
+                        record["evm_best_rms_pct"] = sig_res["evm_best_rms_pct"]
+                        record["evm_best_db"] = sig_res["evm_best_db"]
+                        record["evm_delta_rms_pct"] = sig_res["evm_delta_rms_pct"]
                     results_list.append(record)
                     existing_records_by_name[filename] = record
 

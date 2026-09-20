@@ -2,10 +2,16 @@
 
 import argparse
 from pathlib import Path
+import numpy as np
 
 from .compressor import compress_distance_folder
-from .pipeline import run_pipeline
-from .plotter import generate_all_plots, generate_ber_plots, generate_evm_plots
+from .pipeline import load_tx_reference, run_pipeline
+from .plotter import (
+    generate_all_plots,
+    generate_ber_plots,
+    generate_evm_plots,
+    plot_constellation,
+)
 from .validation import validate_dataset_dir
 
 
@@ -35,6 +41,18 @@ def main() -> None:
         type=str,
         default=None,
         help="Path to output CSV file (default: <dataset_dir>/results_<dataset_name>.csv).",
+    )
+    run_parser.add_argument(
+        "--skip-initial-symbols",
+        type=int,
+        default=0,
+        help="Number of initial symbols to skip for warm-up / settling time (default: 0).",
+    )
+    run_parser.add_argument(
+        "--best-window-symbols",
+        type=int,
+        default=None,
+        help="Contiguous symbol block size to find best-case EVM window (default: None).",
     )
 
     # Subcommand: plot
@@ -70,6 +88,48 @@ def main() -> None:
         default="all",
         help="Metric to plot: 'all' (default), 'ber', or 'evm'.",
     )
+    plot_parser.add_argument(
+        "--snr-bin-width",
+        type=float,
+        default=None,
+        help="Bin width in dB to aggregate SNR measurements in BER/EVM vs SNR plots (default: auto).",
+    )
+
+    # Subcommand: constellation
+    constellation_parser = subparsers.add_parser(
+        "constellation", help="Generate QPSK constellation diagram with EVM analysis."
+    )
+    constellation_parser.add_argument(
+        "--rx",
+        required=True,
+        type=str,
+        help="Path to raw RX complex64 file.",
+    )
+    constellation_parser.add_argument(
+        "--tx-ref",
+        type=str,
+        default="qpsk_src/data/tx.txt",
+        help="Path to reference TX bit file (default: qpsk_src/data/tx.txt).",
+    )
+    constellation_parser.add_argument(
+        "--output",
+        "-o",
+        type=str,
+        default="constellation_analysis.png",
+        help="Path to save output constellation plot PNG (default: constellation_analysis.png).",
+    )
+    constellation_parser.add_argument(
+        "--skip-initial-symbols",
+        type=int,
+        default=0,
+        help="Number of initial symbols to skip for warm-up / settling time (default: 0).",
+    )
+    constellation_parser.add_argument(
+        "--best-window-symbols",
+        type=int,
+        default=None,
+        help="Contiguous symbol block size to find best-case EVM window (default: None).",
+    )
 
     # Subcommand: compress
     compress_parser = subparsers.add_parser(
@@ -102,6 +162,8 @@ def main() -> None:
             dataset_dir=args.dataset_dir,
             tx_ref_path=args.tx_ref,
             output_csv_path=args.output_csv,
+            skip_initial_symbols=args.skip_initial_symbols,
+            best_window_symbols=args.best_window_symbols,
         )
         print(f"Pipeline executed successfully. Output saved to: {output_csv}")
 
@@ -120,15 +182,33 @@ def main() -> None:
             raise ValueError("Must specify either --csv-path or --dataset-dir to generate plots.")
 
         if args.metric == "ber":
-            plots = generate_ber_plots(csv_path=csv_file, output_dir=args.output_dir)
+            plots = generate_ber_plots(
+                csv_path=csv_file, output_dir=args.output_dir, snr_bin_width=args.snr_bin_width
+            )
         elif args.metric == "evm":
-            plots = generate_evm_plots(csv_path=csv_file, output_dir=args.output_dir)
+            plots = generate_evm_plots(
+                csv_path=csv_file, output_dir=args.output_dir, snr_bin_width=args.snr_bin_width
+            )
         else:
-            plots = generate_all_plots(csv_path=csv_file, output_dir=args.output_dir)
+            plots = generate_all_plots(
+                csv_path=csv_file, output_dir=args.output_dir, snr_bin_width=args.snr_bin_width
+            )
 
         print(f"Generated {len(plots)} plot figures ({args.metric}) from {csv_file}:")
         for p in plots:
             print(f"  - {p}")
+
+    elif args.command == "constellation":
+        tx_symbols = load_tx_reference(args.tx_ref)
+        rx_samples = np.fromfile(args.rx, dtype=np.complex64)
+        out_path = plot_constellation(
+            rx_signal=rx_samples,
+            tx_ref=tx_symbols,
+            output_file=args.output,
+            skip_initial_symbols=args.skip_initial_symbols,
+            best_window_symbols=args.best_window_symbols,
+        )
+        print(f"Constellation plot generated: {out_path}")
 
     elif args.command == "compress":
         path = Path(args.dataset_dir)
@@ -157,3 +237,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

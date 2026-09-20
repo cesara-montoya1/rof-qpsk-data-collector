@@ -87,3 +87,23 @@ def test_empty_signals():
     assert len(demodulate_qpsk(np.array([]))) == 0
     tx_s, rx_s, delay = sync_signals(np.array([]), np.array([]))
     assert len(tx_s) == 0 and len(rx_s) == 0 and delay == 0
+
+
+def test_process_signal_with_evm_options():
+    """Test process_signal with warm-up skip and best-window search."""
+    np.random.seed(42)
+    bits = np.random.randint(0, 2, 800)
+    tx_ref = modulate_qpsk(bits)
+    # Add heavy noise to first 50 symbols, then low noise with a pristine segment
+    noise = (np.random.normal(0, 0.05, len(tx_ref)) + 1j * np.random.normal(0, 0.05, len(tx_ref)))
+    noise[:50] = 2.0  # heavy warm-up distortion
+    noise[150:250] = 0.001  # pristine block
+    rx = tx_ref + noise
+
+    res = process_signal(tx_ref, rx, skip_initial_symbols=50, best_window_symbols=100)
+    assert res["ber"] < 0.05
+    assert res["evm_rms_pct"] < 15.0
+    assert res["evm_best_rms_pct"] < res["evm_rms_pct"]
+    assert res["evm_delta_rms_pct"] > 0
+    assert res["best_window_start"] is not None
+

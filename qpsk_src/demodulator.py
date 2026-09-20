@@ -1,6 +1,6 @@
 """QPSK Demodulation, Modulation, Synchronization, and Signal Processing Core."""
 
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, Optional, Tuple
 import numpy as np
 
 from .evm import compute_evm
@@ -158,7 +158,12 @@ def sync_signals_complex(
     return tx_sync, rx_sync, delay
 
 
-def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
+def process_signal(
+    tx_ref: np.ndarray,
+    rx_signal: np.ndarray,
+    skip_initial_symbols: int = 0,
+    best_window_symbols: Optional[int] = None,
+) -> Dict[str, Any]:
     """
     Finds the optimal delay and phase rotation (1, 1j, -1, -1j) producing
     the minimum Bit Error Rate (BER), and computes Error Vector Magnitude (EVM).
@@ -166,6 +171,8 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
     Args:
         tx_ref: 1D complex array of transmitted reference symbols.
         rx_signal: 1D complex array of received signal samples.
+        skip_initial_symbols: Number of initial symbols to ignore to allow equalizer/PLL/AGC warm-up.
+        best_window_symbols: Optional contiguous block size (M) to find the lowest-noise EVM window.
 
     Returns:
         Dict containing:
@@ -175,6 +182,11 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
             - 'evm_rms_pct': RMS EVM in percent (%)
             - 'evm_db': RMS EVM in dB
             - 'evm_peak_pct': Peak EVM in percent (%)
+            - 'evm_best_rms_pct': Best-window RMS EVM (%) or None
+            - 'evm_best_db': Best-window EVM in dB or None
+            - 'evm_delta_rms_pct': Delta EVM (%) or None
+            - 'evm_delta_db': Delta EVM in dB or None
+            - 'best_window_start': Start index of best window or None
     """
     rotations = [1, 1j, -1, -1j]
     best_ber = 1.0
@@ -191,21 +203,27 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
             "evm_rms_pct": float("nan"),
             "evm_db": float("nan"),
             "evm_peak_pct": float("nan"),
+            "evm_best_rms_pct": None if best_window_symbols is None else float("nan"),
+            "evm_best_db": None if best_window_symbols is None else float("nan"),
+            "evm_delta_rms_pct": None if best_window_symbols is None else float("nan"),
+            "evm_delta_db": None if best_window_symbols is None else float("nan"),
+            "best_window_start": None,
         }
 
     tx_s, rx_s, delay = sync_signals_complex(tx_ref, rx_signal)
     b_ref = demodulate_qpsk(tx_s)
     n_ref = len(b_ref)
+    bit_skip = 2 * max(0, int(skip_initial_symbols))
 
     for rot in rotations:
         rx_rotated = rx_s * rot
         b_rx = demodulate_qpsk(rx_rotated)
 
         n = min(n_ref, len(b_rx))
-        if n == 0:
+        if n <= bit_skip:
             continue
 
-        ber = float(np.mean(b_ref[:n] != b_rx[:n]))
+        ber = float(np.mean(b_ref[bit_skip:n] != b_rx[bit_skip:n]))
         if ber < best_ber:
             best_ber = ber
             best_delay = delay
@@ -215,12 +233,22 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
 
     if best_tx_s is not None and best_rx_s is not None and len(best_tx_s) > 0 and len(best_rx_s) > 0:
         n_sym = min(len(best_tx_s), len(best_rx_s))
-        evm_res = compute_evm(best_rx_s[:n_sym], best_tx_s[:n_sym])
+        evm_res = compute_evm(
+            best_rx_s[:n_sym],
+            best_tx_s[:n_sym],
+            skip_initial_symbols=skip_initial_symbols,
+            best_window_symbols=best_window_symbols,
+        )
     else:
         evm_res = {
             "evm_rms_pct": float("nan"),
             "evm_db": float("nan"),
             "evm_peak_pct": float("nan"),
+            "evm_best_rms_pct": None if best_window_symbols is None else float("nan"),
+            "evm_best_db": None if best_window_symbols is None else float("nan"),
+            "evm_delta_rms_pct": None if best_window_symbols is None else float("nan"),
+            "evm_delta_db": None if best_window_symbols is None else float("nan"),
+            "best_window_start": None,
         }
 
     return {
@@ -230,5 +258,10 @@ def process_signal(tx_ref: np.ndarray, rx_signal: np.ndarray) -> Dict[str, Any]:
         "evm_rms_pct": evm_res["evm_rms_pct"],
         "evm_db": evm_res["evm_db"],
         "evm_peak_pct": evm_res["evm_peak_pct"],
+        "evm_best_rms_pct": evm_res.get("evm_best_rms_pct"),
+        "evm_best_db": evm_res.get("evm_best_db"),
+        "evm_delta_rms_pct": evm_res.get("evm_delta_rms_pct"),
+        "evm_delta_db": evm_res.get("evm_delta_db"),
+        "best_window_start": evm_res.get("best_window_start"),
     }
 

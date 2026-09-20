@@ -193,9 +193,69 @@ def test_cli_commands(tmp_path: Path, monkeypatch):
             str(csv_res),
             "--metric",
             "all",
+            "--snr-bin-width",
+            "1.0",
         ],
     )
     cli_main()
     plots_dir = dataset_dir / "plots"
     assert (plots_dir / "ber_vs_snr_mean.png").exists()
     assert (plots_dir / "evm_vs_snr_mean.png").exists()
+
+    # Test CLI constellation
+    const_png = dataset_dir / "test_const.png"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cli.py",
+            "constellation",
+            "--rx",
+            str(sig_file),
+            "--tx-ref",
+            str(tx_file),
+            "--output",
+            str(const_png),
+            "--skip-initial-symbols",
+            "10",
+            "--best-window-symbols",
+            "30",
+        ],
+    )
+    cli_main()
+    assert const_png.exists()
+    assert const_png.stat().st_size > 0
+
+
+def test_run_pipeline_with_evm_options(tmp_path: Path):
+    """Verify that run_pipeline records best-window EVM metrics when options are set."""
+    bits = np.tile([0, 0, 0, 1, 1, 0, 1, 1], 50)
+    tx_file = tmp_path / "tx.txt"
+    tx_file.write_text("".join(map(str, bits)))
+
+    dataset_dir = tmp_path / "test_dataset_evm"
+    dist_dir = dataset_dir / "0km"
+    dist_dir.mkdir(parents=True)
+
+    sig_symbols = modulate_qpsk(bits)
+    sig_file = dist_dir / "rof_0dBm_0km_osnr32p82dB_650mhz_2mbps_snr5p50dB.complex64"
+    sig_symbols.astype(np.complex64).tofile(sig_file)
+
+    output_csv = run_pipeline(
+        dataset_dir,
+        tx_file,
+        skip_initial_symbols=20,
+        best_window_symbols=40,
+    )
+
+    with open(output_csv, "r", encoding="utf-8") as f:
+        rows = list(csv.DictReader(f))
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert "evm_best_rms_pct" in row
+    assert "evm_best_db" in row
+    assert "evm_delta_rms_pct" in row
+    assert float(row["evm_best_rms_pct"]) < 1e-3
+    assert float(row["evm_delta_rms_pct"]) >= 0.0
+
