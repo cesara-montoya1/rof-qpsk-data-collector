@@ -610,7 +610,8 @@ def plot_constellation(
         ax2.legend(loc="upper right", fontsize=9)
 
         main_title = title or "QPSK Constellation & Noise Transient Analysis"
-        fig.suptitle(main_title, fontsize=13, fontweight="bold", y=1.02)
+        fig.suptitle(main_title, fontsize=13, fontweight="bold")
+        plt.tight_layout(rect=[0, 0, 1, 0.95])
     else:
         fig, ax = plt.subplots(figsize=(7, 6), dpi=150)
         pts = rx_norm
@@ -638,10 +639,10 @@ def plot_constellation(
         ax.set_xlim(-1.8, 1.8)
         ax.set_ylim(-1.8, 1.8)
         ax.legend(loc="upper right", fontsize=9)
+        plt.tight_layout()
 
-    plt.tight_layout()
     output_file.parent.mkdir(parents=True, exist_ok=True)
-    plt.savefig(output_file, bbox_inches="tight")
+    plt.savefig(output_file)
     plt.close(fig)
     return output_file
 

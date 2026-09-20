@@ -94,6 +94,66 @@ def main() -> None:
         default=None,
         help="Bin width in dB to aggregate SNR measurements in BER/EVM vs SNR plots (default: auto).",
     )
+    plot_parser.add_argument(
+        "--include-diagnostics",
+        action="store_true",
+        help="Also generate advanced channel diagnostic plots (e.g. BER vs EVM theoretical bound).",
+    )
+    plot_parser.add_argument(
+        "--diagnostics-subfolder",
+        type=str,
+        default="diagnostics",
+        help="Subdirectory for extra diagnostic plots (default: 'diagnostics'). Set to '' to save directly in the regular plots folder.",
+    )
+
+    # Subcommand: diagnostics
+    diag_parser = subparsers.add_parser(
+        "diagnostics", help="Generate advanced channel diagnostics (polar EVM, spectrum, density, BER vs EVM)."
+    )
+    diag_parser.add_argument(
+        "--csv-path",
+        "-c",
+        type=str,
+        default=None,
+        help="Path to results CSV file for dataset diagnostics.",
+    )
+    diag_parser.add_argument(
+        "--rx",
+        type=str,
+        default=None,
+        help="Path to raw RX complex64 file for single-signal diagnostics.",
+    )
+    diag_parser.add_argument(
+        "--tx-ref",
+        type=str,
+        default="qpsk_src/data/tx.txt",
+        help="Path to reference TX bit file (default: qpsk_src/data/tx.txt).",
+    )
+    diag_parser.add_argument(
+        "--output-dir",
+        "-o",
+        type=str,
+        default=None,
+        help="Directory to save diagnostic plots (default: <data_dir>/plots).",
+    )
+    diag_parser.add_argument(
+        "--subfolder",
+        type=str,
+        default="diagnostics",
+        help="Subfolder inside output-dir (default: 'diagnostics'). Pass '' to save directly in the main folder.",
+    )
+    diag_parser.add_argument(
+        "--skip-initial-symbols",
+        type=int,
+        default=0,
+        help="Number of initial symbols to skip for warm-up (default: 0).",
+    )
+    diag_parser.add_argument(
+        "--best-window-symbols",
+        type=int,
+        default=None,
+        help="Block size (M) for best-case EVM window (default: None).",
+    )
 
     # Subcommand: constellation
     constellation_parser = subparsers.add_parser(
@@ -168,6 +228,8 @@ def main() -> None:
         print(f"Pipeline executed successfully. Output saved to: {output_csv}")
 
     elif args.command == "plot":
+        from .diagnostics import generate_dataset_diagnostics
+
         csv_file = None
         if args.csv_path:
             csv_file = Path(args.csv_path)
@@ -194,8 +256,49 @@ def main() -> None:
                 csv_path=csv_file, output_dir=args.output_dir, snr_bin_width=args.snr_bin_width
             )
 
+        if args.include_diagnostics:
+            diag_plots = generate_dataset_diagnostics(
+                csv_path=csv_file,
+                output_dir=args.output_dir,
+                subfolder=args.diagnostics_subfolder,
+            )
+            plots.extend(diag_plots)
+
         print(f"Generated {len(plots)} plot figures ({args.metric}) from {csv_file}:")
         for p in plots:
+            print(f"  - {p}")
+
+    elif args.command == "diagnostics":
+        from .diagnostics import generate_dataset_diagnostics, generate_signal_diagnostics
+
+        generated_plots = []
+        if args.csv_path:
+            p_csv = generate_dataset_diagnostics(
+                csv_path=args.csv_path,
+                output_dir=args.output_dir,
+                subfolder=args.subfolder,
+            )
+            generated_plots.extend(p_csv)
+
+        if args.rx:
+            tx_symbols = load_tx_reference(args.tx_ref)
+            rx_samples = np.fromfile(args.rx, dtype=np.complex64)
+            p_rx = generate_signal_diagnostics(
+                rx_signal=rx_samples,
+                tx_ref=tx_symbols,
+                output_dir=args.output_dir,
+                subfolder=args.subfolder,
+                skip_initial_symbols=args.skip_initial_symbols,
+                best_window_symbols=args.best_window_symbols,
+            )
+            generated_plots.extend(p_rx)
+
+        if not args.csv_path and not args.rx:
+            raise ValueError("Must provide either --csv-path or --rx to run diagnostics.")
+
+        dest_desc = f"subfolder '{args.subfolder}'" if args.subfolder else "main directory"
+        print(f"Generated {len(generated_plots)} channel diagnostic plots in {dest_desc}:")
+        for p in generated_plots:
             print(f"  - {p}")
 
     elif args.command == "constellation":

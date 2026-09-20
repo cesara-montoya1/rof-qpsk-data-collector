@@ -21,6 +21,16 @@ from .plotter import (
     plot_constellation,
     plot_evm_curve,
 )
+from .diagnostics import (
+    compute_polar_evm,
+    generate_dataset_diagnostics,
+    generate_signal_diagnostics,
+    plot_ber_vs_evm_theoretical,
+    plot_constellation_density,
+    plot_error_burst_profile,
+    plot_error_vector_spectrum,
+    plot_polar_evm,
+)
 
 __all__ = [
     "validate_dataset_dir",
@@ -44,4 +54,12 @@ __all__ = [
     "plot_ber_curve",
     "plot_evm_curve",
     "plot_constellation",
+    "compute_polar_evm",
+    "generate_dataset_diagnostics",
+    "generate_signal_diagnostics",
+    "plot_ber_vs_evm_theoretical",
+    "plot_constellation_density",
+    "plot_error_burst_profile",
+    "plot_error_vector_spectrum",
+    "plot_polar_evm",
 ]

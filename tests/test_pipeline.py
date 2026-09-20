@@ -202,6 +202,45 @@ def test_cli_commands(tmp_path: Path, monkeypatch):
     assert (plots_dir / "ber_vs_snr_mean.png").exists()
     assert (plots_dir / "evm_vs_snr_mean.png").exists()
 
+    # Test CLI plot with --include-diagnostics
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cli.py",
+            "plot",
+            "--csv-path",
+            str(csv_res),
+            "--include-diagnostics",
+            "--diagnostics-subfolder",
+            "diagnostics",
+        ],
+    )
+    cli_main()
+    assert (plots_dir / "diagnostics" / "ber_vs_evm_theoretical.png").exists()
+
+    # Test CLI diagnostics subcommand on single signal
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "cli.py",
+            "diagnostics",
+            "--rx",
+            str(sig_file),
+            "--tx-ref",
+            str(tx_file),
+            "--output-dir",
+            str(dataset_dir / "plots"),
+            "--subfolder",
+            "diagnostics",
+        ],
+    )
+    cli_main()
+    assert (plots_dir / "diagnostics" / "polar_evm_breakdown.png").exists()
+    assert (plots_dir / "diagnostics" / "error_vector_spectrum.png").exists()
+    assert (plots_dir / "diagnostics" / "constellation_density.png").exists()
+
     # Test CLI constellation
     const_png = dataset_dir / "test_const.png"
     monkeypatch.setattr(
