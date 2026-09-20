@@ -1,4 +1,5 @@
 import os
+import sys
 import argparse
 
 
@@ -17,35 +18,36 @@ def generate_prbs_lfsr(order, seed, file_path, taps, mask):
     abs_path = os.path.abspath(file_path)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
 
-    sequence = []
-    state = seed & mask
-
-    print(f"Generating PRBS{order} sequence...")
-    print(f"Maximal Length: {max_length} bits")
-    print(f"Polynomial Taps: {taps}")
-    print(f"Initial Seed: {seed}")
-
-    for _ in range(max_length):
-        # Extract output bit (LSB)
-        bit = state & 1
-        sequence.append(str(bit))
-
-        # Calculate feedback bit (XOR of specified taps)
-        feedback = 0
-        for tap in taps:
-            feedback ^= state >> (tap - 1)
-
-        feedback &= 1
-
-        # Shift left and apply feedback at the input, mask to maintain order size
-        state = ((state << 1) | feedback) & mask
+    chunk_size = 65536
+    buffer = bytearray(chunk_size)
+    buf_idx = 0
 
     try:
-        with open(file_path, "w") as f:
-            f.write("".join(sequence))
+        with open(file_path, "wb") as f:
+            for _ in range(max_length):
+                bit = state & 1
+                buffer[buf_idx] = 48 + bit  # ASCII '0' or '1'
+                buf_idx += 1
+
+                if buf_idx == chunk_size:
+                    f.write(buffer)
+                    buf_idx = 0
+
+                feedback = 0
+                for tap in taps:
+                    feedback ^= state >> (tap - 1)
+                feedback &= 1
+
+                state = ((state << 1) | feedback) & mask
+
+            if buf_idx > 0:
+                f.write(buffer[:buf_idx])
+
         print(f"✅ Successfully saved {max_length} bits to: {file_path}")
     except Exception as e:
-        print(f"❌ Error while saving the file: {e}")
+        print(f"❌ Error while saving the file: {e}", file=sys.stderr)
+        raise
+
 
 
 if __name__ == "__main__":

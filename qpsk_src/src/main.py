@@ -1,10 +1,21 @@
+"""RoF Automated Experiment Orchestrator with USRP Auto-Recovery."""
+
 import argparse
 import logging
-import numpy as np
-import sys
 import os
-from runner import run_grc_capture
-from file_manager import get_unique_filepath, move_output_file
+import sys
+import time
+import numpy as np
+
+try:
+    from .runner import run_grc_capture_with_retry
+    from .file_manager import get_unique_filepath, move_output_file
+except ImportError:
+    from runner import run_grc_capture_with_retry
+    from file_manager import get_unique_filepath, move_output_file
+
+# Ensure logs directory exists before configuring FileHandler
+os.makedirs("./logs", exist_ok=True)
 
 # Configuration for Logging
 logging.basicConfig(
@@ -17,9 +28,62 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-if __name__ == "__main__":
+
+def capture_single(args, freq_hz: float, grc_path: str) -> bool:
+    """Executes a single capture iteration with recovery and saves results."""
+    cmd = [
+        "python3",
+        grc_path,
+        "--freq",
+        str(freq_hz),
+        "--file-rx",
+        args.file_rx,
+        "--samp-rate-div",
+        str(args.samp_rate_div),
+        "--samp-sym",
+        str(args.samp_sym),
+        "--zmq-addr",
+        args.zmq_addr,
+    ]
+    if getattr(args, "usrp_args", ""):
+        cmd.extend(["--args", args.usrp_args])
+
+    logger.info(f"Executing Capture | Freq: {args.freq} MHz | P: {args.power} dBm")
+
+    snr_samples = run_grc_capture_with_retry(
+        command=cmd,
+        num_samples=args.samples,
+        max_retries=args.retries,
+        cooldown_seconds=args.cooldown,
+    )
+
+    if snr_samples:
+        avg_snr = float(np.mean(snr_samples))
+        logger.info(f"Capture Finished. Avg SNR: {avg_snr:.2f} dB")
+
+        if args.move:
+            params = {
+                "osnr": args.osnr,
+                "dist": args.distance,
+                "power": args.power,
+                "freq": freq_hz,
+                "samp_rate_div": args.samp_rate_div,
+                "samp_sym": args.samp_sym,
+            }
+            final_path = get_unique_filepath(args.move, params, avg_snr)
+            if final_path:
+                move_output_file(args.file_rx, final_path)
+        else:
+            logger.info(f"Move not requested. Raw file remains at: {args.file_rx}")
+        return True
+    else:
+        logger.error("Capture failed: No SNR samples collected after retries.")
+        return False
+
+
+def main():
     parser = argparse.ArgumentParser(
-        description="RoF Automated Experiment Orchestrator"
+        description="RoF Automated Experiment Orchestrator with USRP Auto-Recovery"
     )
 
     # Metadata
@@ -41,9 +105,26 @@ if __name__ == "__main__":
         default="",
         help="Destination directory for the renamed file",
     )
+    parser.add_argument(
+        "--repeat",
+        type=int,
+        default=1,
+        help="Number of consecutive captures to take (default: 1)",
+    )
+    parser.add_argument(
+        "--retries",
+        type=int,
+        default=3,
+        help="Max retries with software USB reset on USRP device error (default: 3)",
+    )
+    parser.add_argument(
+        "--cooldown",
+        type=float,
+        default=2.0,
+        help="Cooldown in seconds between captures and retries (default: 2.0)",
+    )
 
     # GRC / Hardware Parameters
-    # We take MHz from CLI, but we will send Hz to GRC
     parser.add_argument(
         "--freq", type=float, required=True, help="Center frequency in MHz"
     )
@@ -60,55 +141,37 @@ if __name__ == "__main__":
     parser.add_argument(
         "--zmq-addr", type=str, default="tcp://0.0.0.0:18305", help="ZMQ source address"
     )
+    parser.add_argument(
+        "--usrp-args", type=str, default="", help="Optional device args for USRP (e.g. type=b200)"
+    )
 
     args = parser.parse_args()
 
-    # 1. Prepare GRC Command
-    grc_path = os.path.join(".", "grc", "qpsk_rx.py")
+    # Locate qpsk_rx.py robustly
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    candidates = [
+        os.path.join(script_dir, "..", "grc", "qpsk_rx.py"),
+        os.path.join(script_dir, "grc", "qpsk_rx.py"),
+        os.path.join(".", "qpsk_src", "grc", "qpsk_rx.py"),
+        os.path.join(".", "grc", "qpsk_rx.py"),
+    ]
+    grc_path = next((c for c in candidates if os.path.exists(c)), candidates[0])
 
-    # Convert MHz to Hz for the SDR/GRC block
     freq_hz = args.freq * 1e6
 
-    cmd = [
-        "python3",
-        grc_path,
-        "--freq",
-        str(freq_hz),
-        "--file-rx",
-        args.file_rx,
-        "--samp-rate-div",
-        str(args.samp_rate_div),
-        "--samp-sym",
-        str(args.samp_sym),
-        "--zmq-addr",
-        args.zmq_addr,
-    ]
+    successes = 0
+    for i in range(1, args.repeat + 1):
+        if args.repeat > 1:
+            logger.info(f"--- Running capture sequence {i}/{args.repeat} ---")
+        ok = capture_single(args, freq_hz, grc_path)
+        if ok:
+            successes += 1
+        if i < args.repeat:
+            logger.info(f"Waiting {args.cooldown}s cooldown before next sequence...")
+            time.sleep(args.cooldown)
 
-    logger.info(f"Starting Experiment | Freq: {args.freq} MHz | P: {args.power} dBm")
+    logger.info(f"Finished sequence. Completed {successes}/{args.repeat} captures.")
 
-    # 2. Execute Capture
-    snr_samples = run_grc_capture(cmd, args.samples)
 
-    if snr_samples:
-        avg_snr = np.mean(snr_samples)
-        logger.info(f"Capture Finished. Avg SNR: {avg_snr:.2f} dB")
-
-        # 3. File Management (Triggered if --move is provided)
-        if args.move:
-            params = {
-                "osnr": args.osnr,
-                "dist": args.distance,
-                "power": args.power,
-                "freq": freq_hz,
-                "samp_rate_div": args.samp_rate_div,
-                "samp_sym": args.samp_sym,
-            }
-            final_path = get_unique_filepath(args.move, params, avg_snr)
-
-            if final_path:
-                # We move the file from its temporary location to the final named path
-                move_output_file(args.file_rx, final_path)
-        else:
-            logger.info(f"Move not requested. Raw file remains at: {args.file_rx}")
-    else:
-        logger.error("Capture failed: No SNR samples collected.")
+if __name__ == "__main__":
+    main()

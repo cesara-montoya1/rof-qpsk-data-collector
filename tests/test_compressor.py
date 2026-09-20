@@ -35,6 +35,23 @@ def test_compress_distance_folder_with_complex64(tmp_path):
         np.testing.assert_array_equal(npz_data[file2.stem], sig2)
 
 
+def test_compress_distance_folder_skips_when_npz_is_newer(tmp_path):
+    dist_dir = tmp_path / "5km"
+    dist_dir.mkdir()
+    file1 = dist_dir / "sig1.complex64"
+    file1.write_bytes(b"\x00" * 16)
+
+    # First compression
+    npz1 = compress_distance_folder(dist_dir)
+    mtime1 = npz1.stat().st_mtime_ns
+
+    # Call again without changing files - mtime should remain identical (no useless rewrite)
+    npz2 = compress_distance_folder(dist_dir)
+    mtime2 = npz2.stat().st_mtime_ns
+    assert mtime1 == mtime2
+
+
+
 def test_compress_distance_folder_existing_npz_no_complex(tmp_path):
     dist_dir = tmp_path / "10km"
     dist_dir.mkdir()

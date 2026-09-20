@@ -35,6 +35,12 @@ def compress_distance_folder(distance_path: Path | str) -> Optional[Path]:
     complex_files = sorted(path.glob("*.complex64"))
 
     if complex_files:
+        # Avoid redundant re-compression if target NPZ is already newer than all source files
+        if target_npz_path.exists():
+            npz_mtime = target_npz_path.stat().st_mtime_ns
+            if all(f.stat().st_mtime_ns <= npz_mtime for f in complex_files):
+                return target_npz_path
+
         data_dict = {}
         for file_path in complex_files:
             signal_data = np.fromfile(file_path, dtype=np.complex64)
@@ -42,6 +48,7 @@ def compress_distance_folder(distance_path: Path | str) -> Optional[Path]:
 
         np.savez_compressed(target_npz_path, **data_dict)
         return target_npz_path
+
 
     if target_npz_path.exists():
         return target_npz_path

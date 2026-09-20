@@ -1,49 +1,21 @@
+import argparse
+from pathlib import Path
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
-import argparse
 
+# Allow imports from project root
+repo_root = Path(__file__).resolve().parent.parent.parent
+if str(repo_root) not in sys.path:
+    sys.path.insert(0, str(repo_root))
 
-def sync_and_get_corr(tx_symbols, rx_signal):
-    """
-    Synchronizes signals by cross-correlating I and Q components.
-    Returns synchronized segments, the delay, and the correlation magnitude.
-    """
-    eps = 1e-9
-    tx_i = (tx_symbols.real - np.mean(tx_symbols.real)) / (
-        np.std(tx_symbols.real) + eps
-    )
-    tx_q = (tx_symbols.imag - np.mean(tx_symbols.imag)) / (
-        np.std(tx_symbols.imag) + eps
-    )
-    rx_i = (rx_signal.real - np.mean(rx_signal.real)) / (np.std(rx_signal.real) + eps)
-    rx_q = (rx_signal.imag - np.mean(rx_signal.imag)) / (np.std(rx_signal.imag) + eps)
+from qpsk_src.demodulator import (
+    QPSK_CONSTELLATION,
+    demodulate_qpsk,
+    modulate_qpsk,
+    sync_signals,
+)
 
-    corr_ii = np.correlate(rx_i, tx_i, mode="full")
-    corr_qq = np.correlate(rx_q, tx_q, mode="full")
-    total_corr = np.abs(corr_ii + corr_qq)
-
-    lags = np.arange(-len(tx_symbols) + 1, len(rx_signal))
-    delay = lags[np.argmax(total_corr)]
-
-    if delay < 0:
-        rx_sync = rx_signal[0 : len(tx_symbols) + delay]
-        tx_sync = tx_symbols[-delay : -delay + len(rx_sync)]
-    else:
-        rx_sync = rx_signal[delay : delay + len(tx_symbols)]
-        tx_sync = tx_symbols[: len(rx_sync)]
-
-    return tx_sync, rx_sync, delay, total_corr
-
-
-def demodulate_qpsk(rx_samples, constellation):
-    """
-    Demodulates QPSK samples to bits using Minimum Distance decision.
-    """
-    indices = np.argmin(np.abs(rx_samples[:, None] - constellation[None, :]), axis=1)
-    bits = np.zeros(len(indices) * 2, dtype=int)
-    bits[0::2] = (indices >> 1) & 1
-    bits[1::2] = indices & 1
-    return bits
 
 
 def main():
@@ -61,12 +33,7 @@ def main():
         bit_str = f.read().replace("\n", "").strip()
     tx_bits = np.array([int(b) for b in bit_str])
 
-    constellation = np.array(
-        [0.707 + 0.707j, -0.707 + 0.707j, -0.707 - 0.707j, 0.707 - 0.707j]
-    )
-    tx_sym_indices = (tx_bits[0::2] << 1) | tx_bits[1::2]
-    tx_symbols = constellation[tx_sym_indices]
-
+    tx_symbols = modulate_qpsk(tx_bits)
     rx_signal = np.fromfile(args.rx, dtype=np.complex64)
 
     # 2. Phase Rotation Analysis
@@ -80,8 +47,9 @@ def main():
     print("-" * 35)
 
     for i, rot in enumerate(rotations):
-        _, rx_s, delay, corr_mag = sync_and_get_corr(tx_symbols, rx_signal * rot)
-        rx_bits = demodulate_qpsk(rx_s, constellation)
+        tx_s, rx_s, delay = sync_signals(tx_symbols, rx_signal * rot)
+        rx_bits = demodulate_qpsk(rx_s)
+
 
         # Calculate errors and cumulative sum
         sync_tx_bits = tx_bits[: len(rx_bits)]
@@ -133,8 +101,8 @@ def main():
     best_rx = results[best_idx]["rx_sync"]
     ax3.scatter(best_rx.real, best_rx.imag, s=1, alpha=0.2, label="RX Samples")
     ax3.scatter(
-        constellation.real,
-        constellation.imag,
+        QPSK_CONSTELLATION.real,
+        QPSK_CONSTELLATION.imag,
         marker="x",
         color="red",
         s=40,
