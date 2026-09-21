@@ -31,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 def capture_single(args, freq_hz: float, grc_path: str) -> bool:
     """Executes a single capture iteration with recovery and saves results."""
+    rx_dir = os.path.dirname(os.path.abspath(args.file_rx))
+    if rx_dir:
+        os.makedirs(rx_dir, exist_ok=True)
+
     cmd = [
         "python3",
         grc_path,

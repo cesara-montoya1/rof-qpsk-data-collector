@@ -31,7 +31,7 @@ coverage.xml
 # Results, heavy datasets & raw signals (DO NOT TRACK)
 results/
 old_db/
-/data/
+/data
 *.complex64
 *.npz
 *.csv
