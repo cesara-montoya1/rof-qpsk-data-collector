@@ -21,5 +21,6 @@ plot-results = "python3 -m qpsk_src.cli plot"
 compress-dataset = "python3 -m qpsk_src.cli compress"
 compress-and-upload = "python3 -m qpsk_src.cli compress --upload"
 validate-dataset = "python3 -m qpsk_src.cli validate"
+check-signal = "python3 -m qpsk_src.cli constellation"
 test = "pytest tests/ -v"
 

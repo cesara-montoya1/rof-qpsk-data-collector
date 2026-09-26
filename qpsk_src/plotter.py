@@ -443,59 +443,86 @@ def generate_all_plots(
 def plot_constellation(
     rx_signal: np.ndarray,
     tx_ref: np.ndarray,
-    output_file: Union[Path, str],
+    output_file: Optional[Union[Path, str]] = None,
     skip_initial_symbols: int = 0,
     best_window_symbols: Optional[int] = None,
     title: Optional[str] = None,
     max_scatter_points: int = 50000,
-) -> Path:
+    show: bool = False,
+    return_metrics: bool = False,
+) -> Union[Path, Tuple[Path, dict]]:
     """
-    Plots QPSK constellation diagram showing EVM metrics, with optional warm-up symbol
+    Plots QPSK constellation diagram showing BER and EVM metrics, with optional warm-up symbol
     exclusion and best-window contrast.
 
     Args:
         rx_signal: Received complex samples (1D complex array).
         tx_ref: Transmitted reference symbols (1D complex array).
-        output_file: Path to save the generated constellation image.
+        output_file: Path to save the generated constellation image (defaults to /tmp/qpsk_constellation_check.png if None).
         skip_initial_symbols: Initial symbols to skip (warm-up / settling time).
         best_window_symbols: Block size (M) to search for cleanest EVM window.
         title: Optional plot title override.
         max_scatter_points: Subsample limit for scatter plotting to keep rendering fast.
+        show: If True and graphical display is available, interactively displays the plot window.
+        return_metrics: If True, returns a tuple (output_file, metrics_dict).
 
     Returns:
-        Path to output PNG image.
+        Path to output PNG image, or (Path, metrics_dict) if return_metrics is True.
     """
+    import os
+    import tempfile
     import matplotlib
-    matplotlib.use("Agg")
+
+    has_display = bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+    if not (show and has_display):
+        matplotlib.use("Agg")
     import matplotlib.pyplot as plt
     import numpy as np
 
     from .demodulator import QPSK_CONSTELLATION, demodulate_qpsk, sync_signals_complex
     from .evm import compute_evm
 
-    output_file = Path(output_file)
+    if output_file is None:
+        output_file = Path(tempfile.gettempdir()) / "qpsk_constellation_check.png"
+    else:
+        output_file = Path(output_file)
     output_file.parent.mkdir(parents=True, exist_ok=True)
+
+    empty_metrics = {
+        "ber": 1.0,
+        "bit_errors": 0,
+        "total_bits": 0,
+        "evm_rms_pct": 100.0,
+        "evm_db": 0.0,
+        "evm_peak_pct": 100.0,
+        "best_rotation": "0°",
+        "detected_delay": 0,
+        "output_file": output_file,
+    }
 
     if len(rx_signal) == 0 or len(tx_ref) == 0:
         fig, ax = plt.subplots(figsize=(6, 6), dpi=150)
         ax.text(0.5, 0.5, "Empty Signal Data", ha="center", va="center")
         plt.savefig(output_file)
         plt.close(fig)
-        return output_file
+        return (output_file, empty_metrics) if return_metrics else output_file
 
     # Time synchronization
-    tx_s, rx_s, _ = sync_signals_complex(tx_ref, rx_signal)
+    tx_s, rx_s, detected_delay = sync_signals_complex(tx_ref, rx_signal)
     if len(tx_s) == 0 or len(rx_s) == 0:
         fig, ax = plt.subplots(figsize=(6, 6), dpi=150)
         ax.text(0.5, 0.5, "Synchronization Failed", ha="center", va="center")
         plt.savefig(output_file)
         plt.close(fig)
-        return output_file
+        return (output_file, empty_metrics) if return_metrics else output_file
 
-    # Phase rotation resolution
+    # Phase rotation resolution and BER calculation
     rotations = [1, 1j, -1, -1j]
+    rot_labels = {1: "0°", 1j: "90°", -1: "180°", -1j: "270°"}
     best_rot = 1
     best_ber = 1.0
+    n_bit_errors = 0
+    n_bits_eval = 0
     b_ref = demodulate_qpsk(tx_s)
     bit_skip = 2 * max(0, int(skip_initial_symbols))
 
@@ -505,10 +532,14 @@ def plot_constellation(
         n = min(len(b_ref), len(b_rx))
         if n <= bit_skip:
             continue
-        ber = float(np.mean(b_ref[bit_skip:n] != b_rx[bit_skip:n]))
+        errors = int(np.sum(b_ref[bit_skip:n] != b_rx[bit_skip:n]))
+        total_eval = int(n - bit_skip)
+        ber = float(errors / total_eval)
         if ber < best_ber:
             best_ber = ber
             best_rot = rot
+            n_bit_errors = errors
+            n_bits_eval = total_eval
 
     rx_aligned = rx_s * best_rot
     n_sym = min(len(tx_s), len(rx_aligned))
@@ -531,8 +562,24 @@ def plot_constellation(
         best_window_symbols=best_window_symbols,
     )
 
-    evm_rms = evm_res["evm_rms_pct"]
-    evm_db = evm_res["evm_db"]
+    evm_rms = float(evm_res["evm_rms_pct"])
+    evm_db = float(evm_res["evm_db"])
+    evm_peak = float(evm_res.get("evm_peak_pct", 0.0))
+
+    rot_str = rot_labels.get(best_rot, str(best_rot))
+    if best_ber == 0.0:
+        ber_str = "0.000000 (0 errors)"
+    elif best_ber < 1e-4:
+        ber_str = f"{best_ber:.2e} ({n_bit_errors} err)"
+    else:
+        ber_str = f"{best_ber:.6f} ({n_bit_errors} err)"
+
+    info_box_text = (
+        f"BER:      {ber_str}\n"
+        f"EVM RMS:  {evm_rms:.2f}% ({evm_db:.2f} dB)\n"
+        f"EVM Peak: {evm_peak:.2f}%\n"
+        f"Rot: {rot_str} | Delay: {int(detected_delay):,}"
+    )
 
     has_best_window = (
         best_window_symbols is not None
@@ -543,7 +590,7 @@ def plot_constellation(
     if has_best_window:
         fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(13, 6), dpi=150)
 
-        # Left panel: Evaluated (Full / Warm-up skipped) Constellation
+        # Left panel: Evaluated Constellation
         pts = rx_norm
         if len(pts) > max_scatter_points:
             subsample_idx = np.linspace(0, len(pts) - 1, max_scatter_points, dtype=int)
@@ -561,7 +608,7 @@ def plot_constellation(
             zorder=5,
         )
         ax1.set_title(
-            f"Overall Constellation (N={len(rx_norm)})\nEVM RMS: {evm_rms:.2f}% ({evm_db:.2f} dB)",
+            f"Overall Constellation (N={len(rx_norm)})\nBER: {ber_str} | EVM: {evm_rms:.2f}% ({evm_db:.2f} dB)",
             fontsize=11,
             fontweight="bold",
         )
@@ -572,6 +619,16 @@ def plot_constellation(
         ax1.set_xlim(-1.8, 1.8)
         ax1.set_ylim(-1.8, 1.8)
         ax1.legend(loc="upper right", fontsize=9)
+        ax1.text(
+            0.03,
+            0.97,
+            info_box_text,
+            transform=ax1.transAxes,
+            fontsize=8.5,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.88, edgecolor="#999999"),
+            family="monospace",
+        )
 
         # Right panel: Best Window Constellation
         w_start = int(evm_res["best_window_start"])
@@ -609,7 +666,7 @@ def plot_constellation(
         ax2.set_ylim(-1.8, 1.8)
         ax2.legend(loc="upper right", fontsize=9)
 
-        main_title = title or "QPSK Constellation & Noise Transient Analysis"
+        main_title = title or f"QPSK Constellation & Noise Transient Analysis (BER: {ber_str})"
         fig.suptitle(main_title, fontsize=13, fontweight="bold")
         plt.tight_layout(rect=[0, 0, 1, 0.95])
     else:
@@ -630,7 +687,7 @@ def plot_constellation(
             label="Ideal QPSK",
             zorder=5,
         )
-        main_title = title or f"QPSK Constellation Diagram\nEVM RMS: {evm_rms:.2f}% ({evm_db:.2f} dB)"
+        main_title = title or f"QPSK Constellation Diagram\nBER: {ber_str} | EVM RMS: {evm_rms:.2f}% ({evm_db:.2f} dB)"
         ax.set_title(main_title, fontsize=12, fontweight="bold", pad=10)
         ax.set_xlabel("In-Phase (I)", fontweight="bold")
         ax.set_ylabel("Quadrature (Q)", fontweight="bold")
@@ -639,11 +696,41 @@ def plot_constellation(
         ax.set_xlim(-1.8, 1.8)
         ax.set_ylim(-1.8, 1.8)
         ax.legend(loc="upper right", fontsize=9)
+        ax.text(
+            0.03,
+            0.97,
+            info_box_text,
+            transform=ax.transAxes,
+            fontsize=8.5,
+            verticalalignment="top",
+            bbox=dict(boxstyle="round,pad=0.5", facecolor="white", alpha=0.88, edgecolor="#999999"),
+            family="monospace",
+        )
         plt.tight_layout()
 
     output_file.parent.mkdir(parents=True, exist_ok=True)
     plt.savefig(output_file)
+    if show and has_display and matplotlib.get_backend().lower() != "agg":
+        try:
+            plt.show()
+        except Exception:
+            pass
     plt.close(fig)
+
+    metrics_dict = {
+        "ber": best_ber,
+        "bit_errors": n_bit_errors,
+        "total_bits": n_bits_eval,
+        "evm_rms_pct": evm_rms,
+        "evm_db": evm_db,
+        "evm_peak_pct": evm_peak,
+        "best_rotation": rot_str,
+        "detected_delay": int(detected_delay),
+        "output_file": output_file,
+    }
+
+    if return_metrics:
+        return output_file, metrics_dict
     return output_file
 
 

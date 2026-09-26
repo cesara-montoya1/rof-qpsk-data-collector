@@ -157,16 +157,25 @@ def main() -> None:
 
     # Subcommand: constellation
     constellation_parser = subparsers.add_parser(
-        "constellation", help="Generate QPSK constellation diagram with EVM analysis."
+        "constellation", help="Quick transmission check: plot constellation, BER and EVM for a single .complex64 file."
+    )
+    constellation_parser.add_argument(
+        "rx_file",
+        nargs="?",
+        default=None,
+        type=str,
+        help="Path to raw RX complex64 file (positional argument).",
     )
     constellation_parser.add_argument(
         "--rx",
-        required=True,
+        "-r",
         type=str,
+        default=None,
         help="Path to raw RX complex64 file.",
     )
     constellation_parser.add_argument(
         "--tx-ref",
+        "-t",
         type=str,
         default="qpsk_src/data/tx.txt",
         help="Path to reference TX bit file (default: qpsk_src/data/tx.txt).",
@@ -175,8 +184,8 @@ def main() -> None:
         "--output",
         "-o",
         type=str,
-        default="constellation_analysis.png",
-        help="Path to save output constellation plot PNG (default: constellation_analysis.png).",
+        default=None,
+        help="Path to save output constellation plot PNG (default: None, saves temporarily to /tmp/ to keep workspace clean).",
     )
     constellation_parser.add_argument(
         "--skip-initial-symbols",
@@ -189,6 +198,11 @@ def main() -> None:
         type=int,
         default=None,
         help="Contiguous symbol block size to find best-case EVM window (default: None).",
+    )
+    constellation_parser.add_argument(
+        "--no-show",
+        action="store_true",
+        help="Do not display interactive plot window (headless or batch mode).",
     )
 
     # Subcommand: compress
@@ -312,16 +326,64 @@ def main() -> None:
             print(f"  - {p}")
 
     elif args.command == "constellation":
-        tx_symbols = load_tx_reference(args.tx_ref)
-        rx_samples = np.fromfile(args.rx, dtype=np.complex64)
-        out_path = plot_constellation(
+        rx_target = args.rx_file or args.rx
+        if not rx_target:
+            constellation_parser.error(
+                "Debe especificar la ruta al archivo .complex64 (ej: pixi run check-signal muestra.complex64)"
+            )
+
+        rx_path = Path(rx_target)
+        if not rx_path.exists():
+            raise FileNotFoundError(f"Archivo de muestra no encontrado: {rx_path}")
+
+        tx_ref_path = Path(args.tx_ref)
+        if not tx_ref_path.exists():
+            candidate = Path(__file__).resolve().parent / "data" / "tx.txt"
+            if candidate.exists():
+                tx_ref_path = candidate
+            else:
+                raise FileNotFoundError(f"Archivo de referencia TX no encontrado: {tx_ref_path}")
+
+        tx_symbols = load_tx_reference(tx_ref_path)
+        rx_samples = np.fromfile(rx_path, dtype=np.complex64)
+
+        is_temp_output = args.output is None
+        if is_temp_output:
+            import tempfile
+            out_file = Path(tempfile.gettempdir()) / f"qpsk_constellation_{rx_path.stem}.png"
+        else:
+            out_file = Path(args.output)
+
+        out_path, metrics = plot_constellation(
             rx_signal=rx_samples,
             tx_ref=tx_symbols,
-            output_file=args.output,
+            output_file=out_file,
             skip_initial_symbols=args.skip_initial_symbols,
             best_window_symbols=args.best_window_symbols,
+            show=not args.no_show,
+            return_metrics=True,
         )
-        print(f"Constellation plot generated: {out_path}")
+
+        status_tag = "SIN ERRORES ✅" if metrics["ber"] == 0.0 else f"BER: {metrics['ber']:.2e}"
+        n_samples = len(rx_samples)
+        n_symbols_eval = metrics["total_bits"] // 2 if metrics["total_bits"] > 0 else n_samples
+        print("\n" + "=" * 60)
+        print("          REVISIÓN RÁPIDA DE TRANSMISIÓN QPSK          ")
+        print("=" * 60)
+        print(f"Archivo:        {rx_path.name}")
+        print(f"Muestras:       {n_samples:,} ({n_symbols_eval:,} símbolos evaluados)")
+        print(f"Retardo:        {metrics['detected_delay']:,} muestras | Rotación: {metrics['best_rotation']}")
+        print("-" * 60)
+        print(f"BER:            {metrics['ber']:.6f} ({metrics['bit_errors']:,} / {metrics['total_bits']:,} bits) [{status_tag}]")
+        print(f"EVM (RMS):      {metrics['evm_rms_pct']:.2f} % ({metrics['evm_db']:.2f} dB)")
+        print(f"EVM (Pico):     {metrics['evm_peak_pct']:.2f} %")
+        print("-" * 60)
+        if is_temp_output:
+            print(f"Gráfica temporal: {out_path}")
+            print("Tip: Para guardarla permanentemente use: -o mi_grafica.png")
+        else:
+            print(f"Gráfica guardada en: {out_path}")
+        print("=" * 60 + "\n")
 
     elif args.command == "compress":
         from .uploader import trigger_gdrive_sync, validate_results_path

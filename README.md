@@ -116,6 +116,22 @@ pixi run compress-and-upload -d results/hanna_maestria/tu_experimento
 > pixi run compress-and-upload -d results/hanna_maestria/tu_experimento -- --dry-run
 > ```
 
+### 4. Diagnóstico Rápido de una Muestra (Constelación, BER y EVM)
+
+Para verificar en segundos si el enlace óptico y la transmisión están en buen estado antes de realizar una corrida larga:
+
+```bash
+# Visualizar constelación y métricas de una captura individual:
+pixi run check-signal results/hanna_maestria/tu_experimento/0km/muestra.complex64
+
+# O si deseas guardar la imagen permanentemente en un archivo:
+pixi run check-signal results/hanna_maestria/tu_experimento/0km/muestra.complex64 -o mi_grafica.png
+```
+
+- **En pantalla:** Abre una ventana interactiva con la constelación $I/Q$ y un recuadro con el **BER**, **EVM RMS (%)**, **EVM Pico (%)**, retardo temporal y rotación óptima de fase.
+- **En terminal:** Imprime un reporte resumen instantáneo.
+- **Limpio:** Por defecto la gráfica se almacena en `/tmp/` para no ensuciar el repositorio ni Google Drive.
+
 ---
 
 ## 🔬 Adquisición en Laboratorio (Captura con USRP)
