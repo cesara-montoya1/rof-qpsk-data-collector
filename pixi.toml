@@ -19,5 +19,7 @@ pytest = ">=7.0"
 demodulate-qpsk = "python3 -m qpsk_src.cli run"
 plot-results = "python3 -m qpsk_src.cli plot"
 compress-dataset = "python3 -m qpsk_src.cli compress"
+compress-and-upload = "python3 -m qpsk_src.cli compress --upload"
 validate-dataset = "python3 -m qpsk_src.cli validate"
 test = "pytest tests/ -v"
+

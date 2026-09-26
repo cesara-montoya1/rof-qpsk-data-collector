@@ -202,6 +202,16 @@ def main() -> None:
         type=str,
         help="Path to dataset directory or distance folder to compress.",
     )
+    compress_parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Trigger immediate Google Drive synchronization after compression.",
+    )
+    compress_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Simulate compression and upload without modifying remote files.",
+    )
 
     # Subcommand: validate
     validate_parser = subparsers.add_parser(
@@ -314,21 +324,39 @@ def main() -> None:
         print(f"Constellation plot generated: {out_path}")
 
     elif args.command == "compress":
-        path = Path(args.dataset_dir)
+        from .uploader import trigger_gdrive_sync, validate_results_path
+
+        raw_path = Path(args.dataset_dir)
+        if args.upload:
+            path = validate_results_path(raw_path)
+        else:
+            path = raw_path
+
+        compressed_count = 0
         try:
             distance_folders = validate_dataset_dir(path)
             for folder in distance_folders:
                 npz = compress_distance_folder(folder)
                 if npz:
+                    compressed_count += 1
                     print(f"Compressed {folder.name} -> {npz}")
                 else:
                     print(f"No files compressed in {folder.name}")
         except (ValueError, FileNotFoundError):
             npz = compress_distance_folder(path)
             if npz:
+                compressed_count += 1
                 print(f"Compressed {path.name} -> {npz}")
             else:
                 print(f"No files to compress in {path}")
+
+        if args.upload:
+            print("\nIniciando sincronización con Google Drive (lafi:)...")
+            success, sync_msg = trigger_gdrive_sync(dry_run=args.dry_run)
+            print(sync_msg)
+            if not success:
+                raise SystemExit(1)
+            print("\n¡Proceso completado exitosamente!")
 
     elif args.command == "validate":
         folders = validate_dataset_dir(args.dataset_dir)

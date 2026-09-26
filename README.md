@@ -28,6 +28,7 @@ optnet_ml/
 │   ├── metadata.py          # Extractor de parámetros físicos desde nombres de archivo
 │   ├── storage.py           # Gestor de persistencia atómica en CSV (.bak de seguridad)
 │   ├── compressor.py        # Compresión masiva condicional de .complex64 a .npz
+│   ├── uploader.py          # Validación de rutas y disparo de sincronización a Google Drive
 │   ├── data/
 │   │   └── tx.txt           # Secuencia PRBS transmitida de referencia (trackeada en Git)
 │   ├── grc/                 # Flowgraphs de GNU Radio Companion (TX y RX)
@@ -76,6 +77,44 @@ pixi run test
 ```
 
 Las dependencias (NumPy, SciPy, Pandas, Matplotlib, Pytest) se aíslan y administran dentro de `.pixi/` sin requerir permisos de superusuario.
+
+---
+
+## 📤 Flujo de Captura y Subida de Datos (Hanna & David)
+
+Para no saturar la cuota de almacenamiento de Google Drive (15 GB) con archivos `.complex64` sin comprimir:
+
+### 1. Ubicación de los Datos
+
+Guarda siempre la carpeta de tu experimento dentro de `optnet_ml/results/hanna_maestria/` (o la subcarpeta de resultados correspondiente dentro del árbol de Google Drive).
+
+```text
+optnet_ml/results/hanna_maestria/tu_experimento/
+├── 0km/
+│   └── *.complex64
+└── 20km/
+    └── *.complex64
+```
+
+### 2. Comprimir y Subir a Google Drive (Un solo comando)
+
+Una vez terminada la toma de datos, abre la terminal en la carpeta `optnet_ml` y corre:
+
+```bash
+pixi run compress-and-upload -d results/hanna_maestria/tu_experimento
+```
+
+### 3. ¿Qué hace este comando automáticamente?
+
+- Comprime los `.complex64` en cada subcarpeta de distancia generando un archivo `data_<distancia>.npz`.
+- Dispara la sincronización oficial con Google Drive vía `rclone-bisync`.
+- Sube únicamente los archivos `.npz` y archivos de resultados (`.csv`, etc.). **Nunca** subirá archivos `.complex64`.
+- Notifica en pantalla cuando la subida esté completa.
+
+> **Simulación sin subir:** Si quieres verificar qué se comprimiría sin sincronizar a Google Drive, agrega `--dry-run`:
+> ```bash
+> pixi run compress-and-upload -d results/hanna_maestria/tu_experimento -- --dry-run
+> ```
 
 ---
 
