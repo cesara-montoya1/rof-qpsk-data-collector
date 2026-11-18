@@ -1,0 +1,368 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+#
+# SPDX-License-Identifier: GPL-3.0
+#
+# GNU Radio Python Flow Graph
+# Title: 16-QAM Tx
+# Author: César
+# Description: 16-QAM RoF Transmitter (qam16_tx)
+# GNU Radio version: 3.10.12.0
+
+from PyQt5 import Qt
+from gnuradio import qtgui
+from PyQt5 import QtCore
+from gnuradio import blocks
+import pmt
+from gnuradio import digital
+from gnuradio import filter
+from gnuradio.filter import firdes
+from gnuradio import gr
+from gnuradio.fft import window
+import sys
+import signal
+from PyQt5 import Qt
+from argparse import ArgumentParser
+from gnuradio.eng_arg import eng_float, intx
+from gnuradio import eng_notation
+from gnuradio import uhd
+import time
+import numpy as np
+import sip
+import threading
+
+
+
+class qam16_tx(gr.top_block, Qt.QWidget):
+
+    def __init__(self, max_sample_rate=15e6, file_tx="../data/tx.txt", freq=650e6, samp_rate_div=1, samp_sym=16, args="", zmq_addr="tcp://0.0.0.0:18305"):
+        gr.top_block.__init__(self, "16-QAM Tx", catch_exceptions=True)
+        Qt.QWidget.__init__(self)
+        self.setWindowTitle("16-QAM Tx")
+        qtgui.util.check_set_qss()
+        try:
+            self.setWindowIcon(Qt.QIcon.fromTheme('gnuradio-grc'))
+        except BaseException as exc:
+            print(f"Qt GUI: Could not set Icon: {str(exc)}", file=sys.stderr)
+        self.top_scroll_layout = Qt.QVBoxLayout()
+        self.setLayout(self.top_scroll_layout)
+        self.top_scroll = Qt.QScrollArea()
+        self.top_scroll.setFrameStyle(Qt.QFrame.NoFrame)
+        self.top_scroll_layout.addWidget(self.top_scroll)
+        self.top_scroll.setWidgetResizable(True)
+        self.top_widget = Qt.QWidget()
+        self.top_scroll.setWidget(self.top_widget)
+        self.top_layout = Qt.QVBoxLayout(self.top_widget)
+        self.top_grid_layout = Qt.QGridLayout()
+        self.top_layout.addLayout(self.top_grid_layout)
+
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qam16_tx")
+
+        try:
+            geometry = self.settings.value("geometry")
+            if geometry:
+                self.restoreGeometry(geometry)
+        except BaseException as exc:
+            print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
+        self.flowgraph_started = threading.Event()
+
+        ##################################################
+        # Parameters
+        ##################################################
+        self.max_sample_rate = max_sample_rate
+        self.file_tx = file_tx
+        self.freq = freq
+        self.samp_rate_div = samp_rate_div
+        self.samp_sym = samp_sym
+        self.args = args
+        self.zmq_addr = zmq_addr
+
+        ##################################################
+        # Variables
+        ##################################################
+        self.samp_rate = samp_rate = max_sample_rate/samp_rate_div
+        self.sym_rate = sym_rate = samp_rate/samp_sym
+        self.beta = beta = 0.35
+        self.rrc_taps = rrc_taps = firdes.root_raised_cosine(1.0, samp_rate,sym_rate, beta, (11*samp_sym+1))
+        self.qam16 = qam16 = digital.constellation_calcdist([-0.9486833-0.9486833j, -0.9486833-0.31622777j, -0.9486833+0.9486833j, -0.9486833+0.31622777j, -0.31622777-0.9486833j, -0.31622777-0.31622777j, -0.31622777+0.9486833j, -0.31622777+0.31622777j, 0.9486833-0.9486833j, 0.9486833-0.31622777j, 0.9486833+0.9486833j, 0.9486833+0.31622777j, 0.31622777-0.9486833j, 0.31622777-0.31622777j, 0.31622777+0.9486833j, 0.31622777+0.31622777j], [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+        4, 1, digital.constellation.POWER_NORMALIZATION).base()
+        self.qam16.set_npwr(1.0)
+        self.noise = noise = 0.15
+        self.mod_ord = mod_ord = 4
+        self.gain = gain = 85
+
+        ##################################################
+        # Blocks
+        ##################################################
+
+        self._gain_range = qtgui.Range(0, 89.75, 0.25, 85, 200)
+        self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_layout.addWidget(self._gain_win)
+        self.uhd_usrp_sink_0 = uhd.usrp_sink(
+            ",".join((args, "num_send_frames=512")),
+            uhd.stream_args(
+                cpu_format="fc32",
+                args='',
+                channels=list(range(0,1)),
+            ),
+            "",
+        )
+        self.uhd_usrp_sink_0.set_samp_rate(samp_rate)
+        # No synchronization enforced.
+
+        self.uhd_usrp_sink_0.set_center_freq(freq, 0)
+        self.uhd_usrp_sink_0.set_antenna("TX/RX", 0)
+        self.uhd_usrp_sink_0.set_gain(gain, 0)
+        self.root_raised_cosine_filter_0 = filter.interp_fir_filter_ccf(
+            samp_sym,
+            firdes.root_raised_cosine(
+                (0.5*samp_sym),
+                samp_rate,
+                sym_rate,
+                beta,
+                (11*samp_sym+1)))
+        self.qtgui_freq_sink_x_0 = qtgui.freq_sink_c(
+            1024, #size
+            window.WIN_BLACKMAN_hARRIS, #wintype
+            freq, #fc
+            samp_rate, #bw
+            "Spectrum", #name
+            1,
+            None # parent
+        )
+        self.qtgui_freq_sink_x_0.set_update_time((1/30))
+        self.qtgui_freq_sink_x_0.set_y_axis((-100), 0)
+        self.qtgui_freq_sink_x_0.set_y_label('Relative Gain', 'dB')
+        self.qtgui_freq_sink_x_0.set_trigger_mode(qtgui.TRIG_MODE_FREE, 0.0, 0, "")
+        self.qtgui_freq_sink_x_0.enable_autoscale(False)
+        self.qtgui_freq_sink_x_0.enable_grid(True)
+        self.qtgui_freq_sink_x_0.set_fft_average(0.05)
+        self.qtgui_freq_sink_x_0.enable_axis_labels(True)
+        self.qtgui_freq_sink_x_0.enable_control_panel(True)
+        self.qtgui_freq_sink_x_0.set_fft_window_normalized(True)
+
+        self.qtgui_freq_sink_x_0.disable_legend()
+
+
+        labels = ['', '', '', '', '',
+            '', '', '', '', '']
+        widths = [2, 1, 1, 1, 1,
+            1, 1, 1, 1, 1]
+        colors = ["blue", "red", "green", "black", "cyan",
+            "magenta", "yellow", "dark red", "dark green", "dark blue"]
+        alphas = [1.0, 1.0, 1.0, 1.0, 1.0,
+            1.0, 1.0, 1.0, 1.0, 1.0]
+
+        for i in range(1):
+            if len(labels[i]) == 0:
+                self.qtgui_freq_sink_x_0.set_line_label(i, "Data {0}".format(i))
+            else:
+                self.qtgui_freq_sink_x_0.set_line_label(i, labels[i])
+            self.qtgui_freq_sink_x_0.set_line_width(i, widths[i])
+            self.qtgui_freq_sink_x_0.set_line_color(i, colors[i])
+            self.qtgui_freq_sink_x_0.set_line_alpha(i, alphas[i])
+
+        self._qtgui_freq_sink_x_0_win = sip.wrapinstance(self.qtgui_freq_sink_x_0.qwidget(), Qt.QWidget)
+        self.top_grid_layout.addWidget(self._qtgui_freq_sink_x_0_win, 0, 2, 2, 2)
+        for r in range(0, 2):
+            self.top_grid_layout.setRowStretch(r, 1)
+        for c in range(2, 4):
+            self.top_grid_layout.setColumnStretch(c, 1)
+        self._noise_range = qtgui.Range(0, 1, 0.01, 0.15, 200)
+        self._noise_win = qtgui.RangeWidget(self._noise_range, self.set_noise, "Sim: Noise Voltage", "counter_slider", float, QtCore.Qt.Horizontal)
+        self.top_layout.addWidget(self._noise_win)
+        self.digital_constellation_encoder_bc_0 = digital.constellation_encoder_bc(qam16)
+        self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(mod_ord)
+        self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, file_tx, True, 0, 0)
+        self.blocks_file_source_0.set_begin_tag(pmt.PMT_NIL)
+        self.blocks_add_const_vxx_0 = blocks.add_const_bb(208)
+
+
+        ##################################################
+        # Connections
+        ##################################################
+        self.connect((self.blocks_add_const_vxx_0, 0), (self.blocks_pack_k_bits_bb_0, 0))
+        self.connect((self.blocks_file_source_0, 0), (self.blocks_add_const_vxx_0, 0))
+        self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.digital_constellation_encoder_bc_0, 0))
+        self.connect((self.digital_constellation_encoder_bc_0, 0), (self.root_raised_cosine_filter_0, 0))
+        self.connect((self.root_raised_cosine_filter_0, 0), (self.qtgui_freq_sink_x_0, 0))
+        self.connect((self.root_raised_cosine_filter_0, 0), (self.uhd_usrp_sink_0, 0))
+
+
+    def closeEvent(self, event):
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qam16_tx")
+        self.settings.setValue("geometry", self.saveGeometry())
+        self.stop()
+        self.wait()
+
+        event.accept()
+
+    def get_max_sample_rate(self):
+        return self.max_sample_rate
+
+    def set_max_sample_rate(self, max_sample_rate):
+        self.max_sample_rate = max_sample_rate
+        self.set_samp_rate(self.max_sample_rate/self.samp_rate_div)
+
+    def get_file_tx(self):
+        return self.file_tx
+
+    def set_file_tx(self, file_tx):
+        self.file_tx = file_tx
+        self.blocks_file_source_0.open(self.file_tx, True)
+
+    def get_freq(self):
+        return self.freq
+
+    def set_freq(self, freq):
+        self.freq = freq
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+        self.uhd_usrp_sink_0.set_center_freq(self.freq, 0)
+
+    def get_samp_rate_div(self):
+        return self.samp_rate_div
+
+    def set_samp_rate_div(self, samp_rate_div):
+        self.samp_rate_div = samp_rate_div
+        self.set_samp_rate(self.max_sample_rate/self.samp_rate_div)
+
+    def get_samp_sym(self):
+        return self.samp_sym
+
+    def set_samp_sym(self, samp_sym):
+        self.samp_sym = samp_sym
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.set_sym_rate(self.samp_rate/self.samp_sym)
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.5*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+
+    def get_args(self):
+        return self.args
+
+    def set_args(self, args):
+        self.args = args
+
+    def get_zmq_addr(self):
+        return self.zmq_addr
+
+    def set_zmq_addr(self, zmq_addr):
+        self.zmq_addr = zmq_addr
+
+    def get_samp_rate(self):
+        return self.samp_rate
+
+    def set_samp_rate(self, samp_rate):
+        self.samp_rate = samp_rate
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.set_sym_rate(self.samp_rate/self.samp_sym)
+        self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.5*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.uhd_usrp_sink_0.set_samp_rate(self.samp_rate)
+
+    def get_sym_rate(self):
+        return self.sym_rate
+
+    def set_sym_rate(self, sym_rate):
+        self.sym_rate = sym_rate
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.5*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+
+    def get_beta(self):
+        return self.beta
+
+    def set_beta(self, beta):
+        self.beta = beta
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.5*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+
+    def get_rrc_taps(self):
+        return self.rrc_taps
+
+    def set_rrc_taps(self, rrc_taps):
+        self.rrc_taps = rrc_taps
+
+    def get_qam16(self):
+        return self.qam16
+
+    def set_qam16(self, qam16):
+        self.qam16 = qam16
+        self.digital_constellation_encoder_bc_0.set_constellation(self.qam16)
+
+    def get_noise(self):
+        return self.noise
+
+    def set_noise(self, noise):
+        self.noise = noise
+
+    def get_mod_ord(self):
+        return self.mod_ord
+
+    def set_mod_ord(self, mod_ord):
+        self.mod_ord = mod_ord
+
+    def get_gain(self):
+        return self.gain
+
+    def set_gain(self, gain):
+        self.gain = gain
+        self.uhd_usrp_sink_0.set_gain(self.gain, 0)
+
+
+
+def argument_parser():
+    description = '16-QAM RoF Transmitter (qam16_tx)'
+    parser = ArgumentParser(description=description)
+    parser.add_argument(
+        "--max-sample-rate", dest="max_sample_rate", type=eng_float, default=eng_notation.num_to_str(float(15e6)),
+        help="Set max sample rate [default=%(default)r]")
+    parser.add_argument(
+        "--file-tx", dest="file_tx", type=str, default="../data/tx.txt",
+        help="Set input tx file [default=%(default)r]")
+    parser.add_argument(
+        "--freq", dest="freq", type=eng_float, default=eng_notation.num_to_str(float(650e6)),
+        help="Set central frequency [default=%(default)r]")
+    parser.add_argument(
+        "--samp-rate-div", dest="samp_rate_div", type=intx, default=1,
+        help="Set sample rate division [default=%(default)r]")
+    parser.add_argument(
+        "--samp-sym", dest="samp_sym", type=intx, default=16,
+        help="Set samples per symbol [default=%(default)r]")
+    parser.add_argument(
+        "--args", dest="args", type=str, default="",
+        help="Set USRP device args [default=%(default)r]")
+    parser.add_argument(
+        "--zmq-addr", dest="zmq_addr", type=str, default="tcp://0.0.0.0:18305",
+        help="Set ZMQ address [default=%(default)r]")
+    return parser
+
+
+def main(top_block_cls=qam16_tx, options=None):
+    if options is None:
+        options = argument_parser().parse_args()
+
+    qapp = Qt.QApplication(sys.argv)
+
+    tb = top_block_cls(max_sample_rate=options.max_sample_rate, file_tx=options.file_tx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, args=options.args, zmq_addr=options.zmq_addr)
+
+    tb.start()
+    tb.flowgraph_started.set()
+
+    tb.show()
+
+    def sig_handler(sig=None, frame=None):
+        tb.stop()
+        tb.wait()
+
+        Qt.QApplication.quit()
+
+    signal.signal(signal.SIGINT, sig_handler)
+    signal.signal(signal.SIGTERM, sig_handler)
+
+    timer = Qt.QTimer()
+    timer.start(500)
+    timer.timeout.connect(lambda: None)
+
+    qapp.exec_()
+
+if __name__ == '__main__':
+    main()

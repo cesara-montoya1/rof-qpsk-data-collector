@@ -17,10 +17,12 @@ pytest = ">=7.0"
 
 [tasks]
 demodulate-qpsk = "python3 -m qpsk_src.cli run"
+demodulate-16qam = "python3 -m 16qam_src.cli run"
 plot-results = "python3 -m qpsk_src.cli plot"
 compress-dataset = "python3 -m qpsk_src.cli compress"
 compress-and-upload = "python3 -m qpsk_src.cli compress --upload"
 validate-dataset = "python3 -m qpsk_src.cli validate"
 check-signal = "python3 -m qpsk_src.cli constellation"
+check-signal-16qam = "python3 -m 16qam_src.cli constellation"
 test = "pytest tests/ -v"
 
