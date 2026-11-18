@@ -51,6 +51,8 @@ def capture_single(args, freq_hz: float, grc_path: str) -> bool:
     ]
     if getattr(args, "usrp_args", ""):
         cmd.extend(["--args", args.usrp_args])
+    if getattr(args, "max_sample_rate", 15.0) != 15.0:
+        cmd.extend(["--max-sample-rate", str(args.max_sample_rate * 1e6)])
 
     logger.info(f"Executing Capture | Freq: {args.freq} MHz | P: {args.power} dBm")
 
@@ -73,6 +75,7 @@ def capture_single(args, freq_hz: float, grc_path: str) -> bool:
                 "freq": freq_hz,
                 "samp_rate_div": args.samp_rate_div,
                 "samp_sym": args.samp_sym,
+                "max_sample_rate": args.max_sample_rate * 1e6,
             }
             final_path = get_unique_filepath(args.move, params, avg_snr)
             if final_path:
@@ -135,6 +138,12 @@ def main():
     parser.add_argument(
         "--samp-rate-div", type=int, default=1, help="Sampling rate decimation factor"
     )
+    parser.add_argument(
+        "--max-sample-rate",
+        type=float,
+        default=15.0,
+        help="Max USRP base sample rate in MHz (default: 15.0)",
+    )
     parser.add_argument("--samp-sym", type=int, default=16, help="Samples per symbol")
     parser.add_argument(
         "--file-rx",
@@ -148,18 +157,27 @@ def main():
     parser.add_argument(
         "--usrp-args", type=str, default="", help="Optional device args for USRP (e.g. type=b200)"
     )
+    parser.add_argument(
+        "--grc-script",
+        type=str,
+        default="",
+        help="Optional path to custom compiled GRC RX python script (e.g. qpsk_src/grc/qpsk_rx_v2_burst.py)",
+    )
 
     args = parser.parse_args()
 
-    # Locate qpsk_rx.py robustly
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    candidates = [
-        os.path.join(script_dir, "..", "grc", "qpsk_rx.py"),
-        os.path.join(script_dir, "grc", "qpsk_rx.py"),
-        os.path.join(".", "qpsk_src", "grc", "qpsk_rx.py"),
-        os.path.join(".", "grc", "qpsk_rx.py"),
-    ]
-    grc_path = next((c for c in candidates if os.path.exists(c)), candidates[0])
+    # Locate qpsk_rx.py robustly (or use explicit --grc-script)
+    if args.grc_script:
+        grc_path = args.grc_script
+    else:
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        candidates = [
+            os.path.join(script_dir, "..", "grc", "qpsk_rx.py"),
+            os.path.join(script_dir, "grc", "qpsk_rx.py"),
+            os.path.join(".", "qpsk_src", "grc", "qpsk_rx.py"),
+            os.path.join(".", "grc", "qpsk_rx.py"),
+        ]
+        grc_path = next((c for c in candidates if os.path.exists(c)), candidates[0])
 
     freq_hz = args.freq * 1e6
 

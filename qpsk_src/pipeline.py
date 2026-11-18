@@ -15,6 +15,10 @@ def load_tx_reference(tx_ref_path: Path | str) -> np.ndarray:
     """
     Loads TX reference bit string from file and converts it into complex QPSK symbols.
 
+    If the bit sequence has an odd length (e.g., standard $2^n - 1$ PRBS), it is
+    duplicated so that both even and odd bit-to-symbol alignments (and the
+    wrap-around transition) are represented.
+
     Args:
         tx_ref_path: Path to the reference TX file (e.g. tx.txt).
 
@@ -30,6 +34,9 @@ def load_tx_reference(tx_ref_path: Path | str) -> np.ndarray:
 
     bit_str = path.read_text(encoding="utf-8").replace("\n", "").strip()
     bits = np.array([int(b) for b in bit_str if b in ("0", "1")], dtype=np.uint8)
+    if len(bits) % 2 == 1:
+        # Odd-length PRBS sequences flip symbol parity on each wrap-around.
+        bits = np.concatenate([bits, bits])
     return modulate_qpsk(bits)
 
 

@@ -298,3 +298,23 @@ def test_run_pipeline_with_evm_options(tmp_path: Path):
     assert float(row["evm_best_rms_pct"]) < 1e-3
     assert float(row["evm_delta_rms_pct"]) >= 0.0
 
+
+def test_load_tx_reference_odd_length(tmp_path: Path):
+    """Odd-length TX bitstreams should be duplicated to cover both symbol parities."""
+    from qpsk_src.demodulator import process_signal
+
+    # 7-bit m-sequence (PRBS-3, odd length)
+    prbs3_str = "1110100"
+    tx_file = tmp_path / "tx_odd.txt"
+    tx_file.write_text(prbs3_str, encoding="utf-8")
+
+    ref_symbols = load_tx_reference(tx_file)
+    assert len(ref_symbols) == 7
+
+    # Simulate an RX capture starting at an odd bit offset in a repeating stream
+    repeated_bits = np.array([int(b) for b in (prbs3_str * 10)], dtype=np.uint8)
+    rx_odd_offset = modulate_qpsk(repeated_bits[1:15])
+    res = process_signal(ref_symbols, rx_odd_offset)
+    assert res["ber"] == 0.0
+
+

@@ -7,7 +7,7 @@
 # GNU Radio Python Flow Graph
 # Title: QPSK Rx
 # Author: César
-# GNU Radio version: 3.10.9.2
+# GNU Radio version: 3.10.12.0
 
 from PyQt5 import Qt
 from gnuradio import qtgui
@@ -29,6 +29,7 @@ from gnuradio import uhd
 import time
 import numpy as np
 import sip
+import threading
 
 
 
@@ -55,7 +56,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
         self.top_grid_layout = Qt.QGridLayout()
         self.top_layout.addLayout(self.top_grid_layout)
 
-        self.settings = Qt.QSettings("GNU Radio", "qpsk_rx")
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qpsk_rx")
 
         try:
             geometry = self.settings.value("geometry")
@@ -63,6 +64,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
                 self.restoreGeometry(geometry)
         except BaseException as exc:
             print(f"Qt GUI: Could not restore geometry: {str(exc)}", file=sys.stderr)
+        self.flowgraph_started = threading.Event()
 
         ##################################################
         # Parameters
@@ -245,7 +247,7 @@ class qpsk_rx(gr.top_block, Qt.QWidget):
 
 
     def closeEvent(self, event):
-        self.settings = Qt.QSettings("GNU Radio", "qpsk_rx")
+        self.settings = Qt.QSettings("gnuradio/flowgraphs", "qpsk_rx")
         self.settings.setValue("geometry", self.saveGeometry())
         self.stop()
         self.wait()
@@ -405,6 +407,7 @@ def main(top_block_cls=qpsk_rx, options=None):
     tb = top_block_cls(file_rx=options.file_rx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, zmq_addr=options.zmq_addr)
 
     tb.start()
+    tb.flowgraph_started.set()
 
     tb.show()
 

@@ -18,6 +18,7 @@ def generate_prbs_lfsr(order, seed, file_path, taps, mask):
     abs_path = os.path.abspath(file_path)
     os.makedirs(os.path.dirname(abs_path), exist_ok=True)
 
+    state = seed & mask
     chunk_size = 65536
     buffer = bytearray(chunk_size)
     buf_idx = 0
@@ -47,7 +48,6 @@ def generate_prbs_lfsr(order, seed, file_path, taps, mask):
     except Exception as e:
         print(f"❌ Error while saving the file: {e}", file=sys.stderr)
         raise
-
 
 
 if __name__ == "__main__":

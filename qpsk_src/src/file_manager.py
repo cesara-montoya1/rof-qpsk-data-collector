@@ -17,8 +17,8 @@ def get_unique_filepath(out_dir, params, avg_snr):
     osnr_p = f"{params['osnr']:.2f}".replace(".", "p")
     freq_mhz = int(params["freq"] / 1e6)
 
-    # 2. Mbps Calculation: (15MHz / div / samp_sym) * 2 bits
-    max_samp_rate = 15.0
+    # 2. Mbps Calculation: (max_samp_rate / div / samp_sym) * 2 bits
+    max_samp_rate = params.get("max_sample_rate", 15e6) / 1e6
     mbps_val = (max_samp_rate / (params["samp_rate_div"] * params["samp_sym"])) * 2
     mbps_p = f"{mbps_val:.2f}".replace(".", "p")
 

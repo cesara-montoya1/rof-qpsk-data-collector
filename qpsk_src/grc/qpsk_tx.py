@@ -12,7 +12,6 @@
 from PyQt5 import Qt
 from gnuradio import qtgui
 from PyQt5 import QtCore
-from gnuradio import analog
 from gnuradio import blocks
 import pmt
 from gnuradio import digital
@@ -36,7 +35,7 @@ import threading
 
 class qpsk_tx(gr.top_block, Qt.QWidget):
 
-    def __init__(self, file_tx="../data/tx.txt", freq=650e6, samp_rate_div=1, samp_sym=16, zmq_addr="tcp://0.0.0.0:18305"):
+    def __init__(self, max_sample_rate=15e6, file_tx="../data/tx.txt", freq=650e6, samp_rate_div=1, samp_sym=16, args="", zmq_addr="tcp://0.0.0.0:18305"):
         gr.top_block.__init__(self, "QPSK Tx", catch_exceptions=True)
         Qt.QWidget.__init__(self)
         self.setWindowTitle("QPSK Tx")
@@ -70,20 +69,21 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         ##################################################
         # Parameters
         ##################################################
+        self.max_sample_rate = max_sample_rate
         self.file_tx = file_tx
         self.freq = freq
         self.samp_rate_div = samp_rate_div
         self.samp_sym = samp_sym
+        self.args = args
         self.zmq_addr = zmq_addr
 
         ##################################################
         # Variables
         ##################################################
-        self.max_sample_rate = max_sample_rate = 15e6
         self.samp_rate = samp_rate = max_sample_rate/samp_rate_div
         self.sym_rate = sym_rate = samp_rate/samp_sym
         self.beta = beta = 0.35
-        self.rrc_taps = rrc_taps = firdes.root_raised_cosine(1.0, samp_rate,sym_rate, beta, samp_sym)
+        self.rrc_taps = rrc_taps = firdes.root_raised_cosine(1.0, samp_rate,sym_rate, beta, (11*samp_sym+1))
         self.qpsk = qpsk = digital.constellation_rect([0.707+0.707j, -0.707+0.707j, -0.707-0.707j, 0.707-0.707j], [0, 1, 2, 3],
         4, 2, 2, 1, 1).base()
         self.noise = noise = 0.15
@@ -97,22 +97,8 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self._gain_range = qtgui.Range(0, 89.75, 0.25, 85, 200)
         self._gain_win = qtgui.RangeWidget(self._gain_range, self.set_gain, "Exp: Gain", "counter_slider", float, QtCore.Qt.Horizontal)
         self.top_layout.addWidget(self._gain_win)
-        self.uhd_usrp_source_0 = uhd.usrp_source(
-            ",".join(('', '')),
-            uhd.stream_args(
-                cpu_format="fc32",
-                args='',
-                channels=list(range(0,1)),
-            ),
-        )
-        self.uhd_usrp_source_0.set_samp_rate(samp_rate)
-        self.uhd_usrp_source_0.set_time_unknown_pps(uhd.time_spec(0))
-
-        self.uhd_usrp_source_0.set_center_freq(freq, 0)
-        self.uhd_usrp_source_0.set_antenna("RX2", 0)
-        self.uhd_usrp_source_0.set_gain(20, 0)
         self.uhd_usrp_sink_0 = uhd.usrp_sink(
-            ",".join(('', '')),
+            ",".join((args, "num_send_frames=512")),
             uhd.stream_args(
                 cpu_format="fc32",
                 args='',
@@ -126,14 +112,14 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.uhd_usrp_sink_0.set_center_freq(freq, 0)
         self.uhd_usrp_sink_0.set_antenna("TX/RX", 0)
         self.uhd_usrp_sink_0.set_gain(gain, 0)
-        self.root_raised_cosine_filter_0 = filter.fir_filter_ccf(
-            1,
+        self.root_raised_cosine_filter_0 = filter.interp_fir_filter_ccf(
+            samp_sym,
             firdes.root_raised_cosine(
-                1,
+                (0.65*samp_sym),
                 samp_rate,
-                (sym_rate*mod_ord),
-                0.35,
-                samp_sym))
+                sym_rate,
+                beta,
+                (11*samp_sym+1)))
         self.qtgui_freq_sink_x_0 = qtgui.freq_sink_c(
             1024, #size
             window.WIN_BLACKMAN_hARRIS, #wintype
@@ -181,89 +167,25 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
             self.top_grid_layout.setRowStretch(r, 1)
         for c in range(2, 4):
             self.top_grid_layout.setColumnStretch(c, 1)
-        self.qtgui_const_sink_x_0 = qtgui.const_sink_c(
-            1024, #size
-            "Constellation", #name
-            1, #number of inputs
-            None # parent
-        )
-        self.qtgui_const_sink_x_0.set_update_time((1/30))
-        self.qtgui_const_sink_x_0.set_y_axis((-2), 2)
-        self.qtgui_const_sink_x_0.set_x_axis((-2), 2)
-        self.qtgui_const_sink_x_0.set_trigger_mode(qtgui.TRIG_MODE_FREE, qtgui.TRIG_SLOPE_POS, 0.0, 0, "")
-        self.qtgui_const_sink_x_0.enable_autoscale(False)
-        self.qtgui_const_sink_x_0.enable_grid(True)
-        self.qtgui_const_sink_x_0.enable_axis_labels(True)
-
-        self.qtgui_const_sink_x_0.disable_legend()
-
-        labels = ['', 'Rx', '', '', '',
-            '', '', '', '', '']
-        widths = [1, 1, 1, 1, 1,
-            1, 1, 1, 1, 1]
-        colors = ["red", "red", "red", "red", "red",
-            "red", "red", "red", "red", "red"]
-        styles = [0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0]
-        markers = [0, 0, 0, 0, 0,
-            0, 0, 0, 0, 0]
-        alphas = [1.0, 1.0, 1.0, 1.0, 1.0,
-            1.0, 1.0, 1.0, 1.0, 1.0]
-
-        for i in range(1):
-            if len(labels[i]) == 0:
-                self.qtgui_const_sink_x_0.set_line_label(i, "Data {0}".format(i))
-            else:
-                self.qtgui_const_sink_x_0.set_line_label(i, labels[i])
-            self.qtgui_const_sink_x_0.set_line_width(i, widths[i])
-            self.qtgui_const_sink_x_0.set_line_color(i, colors[i])
-            self.qtgui_const_sink_x_0.set_line_style(i, styles[i])
-            self.qtgui_const_sink_x_0.set_line_marker(i, markers[i])
-            self.qtgui_const_sink_x_0.set_line_alpha(i, alphas[i])
-
-        self._qtgui_const_sink_x_0_win = sip.wrapinstance(self.qtgui_const_sink_x_0.qwidget(), Qt.QWidget)
-        self.top_grid_layout.addWidget(self._qtgui_const_sink_x_0_win, 0, 0, 2, 2)
-        for r in range(0, 2):
-            self.top_grid_layout.setRowStretch(r, 1)
-        for c in range(0, 2):
-            self.top_grid_layout.setColumnStretch(c, 1)
         self._noise_range = qtgui.Range(0, 1, 0.01, 0.15, 200)
         self._noise_win = qtgui.RangeWidget(self._noise_range, self.set_noise, "Sim: Noise Voltage", "counter_slider", float, QtCore.Qt.Horizontal)
         self.top_layout.addWidget(self._noise_win)
-        self.digital_symbol_sync_xx_0 = digital.symbol_sync_cc(
-            digital.TED_EARLY_LATE,
-            samp_sym,
-            (2*np.pi/100),
-            1.0,
-            1.0,
-            1.5,
-            1,
-            digital.constellation_qpsk().base(),
-            digital.IR_MMSE_8TAP,
-            128,
-            [])
         self.digital_constellation_encoder_bc_0 = digital.constellation_encoder_bc(qpsk)
-        self.blocks_repeat_0 = blocks.repeat(gr.sizeof_gr_complex*1, samp_sym)
         self.blocks_pack_k_bits_bb_0 = blocks.pack_k_bits_bb(mod_ord)
         self.blocks_file_source_0 = blocks.file_source(gr.sizeof_char*1, file_tx, True, 0, 0)
         self.blocks_file_source_0.set_begin_tag(pmt.PMT_NIL)
         self.blocks_add_const_vxx_0 = blocks.add_const_bb(208)
-        self.analog_agc_xx_0 = analog.agc_cc((1e-4), 1.0, 1.0, 65536)
 
 
         ##################################################
         # Connections
         ##################################################
-        self.connect((self.analog_agc_xx_0, 0), (self.digital_symbol_sync_xx_0, 0))
         self.connect((self.blocks_add_const_vxx_0, 0), (self.blocks_pack_k_bits_bb_0, 0))
         self.connect((self.blocks_file_source_0, 0), (self.blocks_add_const_vxx_0, 0))
         self.connect((self.blocks_pack_k_bits_bb_0, 0), (self.digital_constellation_encoder_bc_0, 0))
-        self.connect((self.blocks_repeat_0, 0), (self.root_raised_cosine_filter_0, 0))
-        self.connect((self.digital_constellation_encoder_bc_0, 0), (self.blocks_repeat_0, 0))
-        self.connect((self.digital_symbol_sync_xx_0, 0), (self.qtgui_const_sink_x_0, 0))
+        self.connect((self.digital_constellation_encoder_bc_0, 0), (self.root_raised_cosine_filter_0, 0))
+        self.connect((self.root_raised_cosine_filter_0, 0), (self.qtgui_freq_sink_x_0, 0))
         self.connect((self.root_raised_cosine_filter_0, 0), (self.uhd_usrp_sink_0, 0))
-        self.connect((self.uhd_usrp_source_0, 0), (self.analog_agc_xx_0, 0))
-        self.connect((self.uhd_usrp_source_0, 0), (self.qtgui_freq_sink_x_0, 0))
 
 
     def closeEvent(self, event):
@@ -273,6 +195,13 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.wait()
 
         event.accept()
+
+    def get_max_sample_rate(self):
+        return self.max_sample_rate
+
+    def set_max_sample_rate(self, max_sample_rate):
+        self.max_sample_rate = max_sample_rate
+        self.set_samp_rate(self.max_sample_rate/self.samp_rate_div)
 
     def get_file_tx(self):
         return self.file_tx
@@ -288,7 +217,6 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
         self.freq = freq
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
         self.uhd_usrp_sink_0.set_center_freq(self.freq, 0)
-        self.uhd_usrp_source_0.set_center_freq(self.freq, 0)
 
     def get_samp_rate_div(self):
         return self.samp_rate_div
@@ -302,11 +230,15 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 
     def set_samp_sym(self, samp_sym):
         self.samp_sym = samp_sym
-        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
         self.set_sym_rate(self.samp_rate/self.samp_sym)
-        self.blocks_repeat_0.set_interpolation(self.samp_sym)
-        self.digital_symbol_sync_xx_0.set_sps(self.samp_sym)
-        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.65*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+
+    def get_args(self):
+        return self.args
+
+    def set_args(self, args):
+        self.args = args
 
     def get_zmq_addr(self):
         return self.zmq_addr
@@ -314,39 +246,32 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
     def set_zmq_addr(self, zmq_addr):
         self.zmq_addr = zmq_addr
 
-    def get_max_sample_rate(self):
-        return self.max_sample_rate
-
-    def set_max_sample_rate(self, max_sample_rate):
-        self.max_sample_rate = max_sample_rate
-        self.set_samp_rate(self.max_sample_rate/self.samp_rate_div)
-
     def get_samp_rate(self):
         return self.samp_rate
 
     def set_samp_rate(self, samp_rate):
         self.samp_rate = samp_rate
-        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
         self.set_sym_rate(self.samp_rate/self.samp_sym)
         self.qtgui_freq_sink_x_0.set_frequency_range(self.freq, self.samp_rate)
-        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.65*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
         self.uhd_usrp_sink_0.set_samp_rate(self.samp_rate)
-        self.uhd_usrp_source_0.set_samp_rate(self.samp_rate)
 
     def get_sym_rate(self):
         return self.sym_rate
 
     def set_sym_rate(self, sym_rate):
         self.sym_rate = sym_rate
-        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
-        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.65*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
 
     def get_beta(self):
         return self.beta
 
     def set_beta(self, beta):
         self.beta = beta
-        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, self.samp_sym))
+        self.set_rrc_taps(firdes.root_raised_cosine(1.0, self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
+        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine((0.65*self.samp_sym), self.samp_rate, self.sym_rate, self.beta, (11*self.samp_sym+1)))
 
     def get_rrc_taps(self):
         return self.rrc_taps
@@ -372,7 +297,6 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 
     def set_mod_ord(self, mod_ord):
         self.mod_ord = mod_ord
-        self.root_raised_cosine_filter_0.set_taps(firdes.root_raised_cosine(1, self.samp_rate, (self.sym_rate*self.mod_ord), 0.35, self.samp_sym))
 
     def get_gain(self):
         return self.gain
@@ -386,6 +310,9 @@ class qpsk_tx(gr.top_block, Qt.QWidget):
 def argument_parser():
     parser = ArgumentParser()
     parser.add_argument(
+        "--max-sample-rate", dest="max_sample_rate", type=eng_float, default=eng_notation.num_to_str(float(15e6)),
+        help="Set max sample rate [default=%(default)r]")
+    parser.add_argument(
         "--file-tx", dest="file_tx", type=str, default="../data/tx.txt",
         help="Set input tx file [default=%(default)r]")
     parser.add_argument(
@@ -398,6 +325,9 @@ def argument_parser():
         "--samp-sym", dest="samp_sym", type=intx, default=16,
         help="Set samples per symbol [default=%(default)r]")
     parser.add_argument(
+        "--args", dest="args", type=str, default="",
+        help="Set USRP device args [default=%(default)r]")
+    parser.add_argument(
         "--zmq-addr", dest="zmq_addr", type=str, default="tcp://0.0.0.0:18305",
         help="Set ZMQ address [default=%(default)r]")
     return parser
@@ -409,7 +339,7 @@ def main(top_block_cls=qpsk_tx, options=None):
 
     qapp = Qt.QApplication(sys.argv)
 
-    tb = top_block_cls(file_tx=options.file_tx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, zmq_addr=options.zmq_addr)
+    tb = top_block_cls(max_sample_rate=options.max_sample_rate, file_tx=options.file_tx, freq=options.freq, samp_rate_div=options.samp_rate_div, samp_sym=options.samp_sym, args=options.args, zmq_addr=options.zmq_addr)
 
     tb.start()
     tb.flowgraph_started.set()
