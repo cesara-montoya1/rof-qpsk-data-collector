@@ -13,8 +13,9 @@ Todas las operaciones se ejecutan mediante [Pixi](https://pixi.sh/) para garanti
 | Tarea | Comando | Descripción |
 | :--- | :--- | :--- |
 | **Diagnóstico Rápido** | `pixi run check-signal <archivo.complex64>` | Calcula BER, EVM (%) y visualiza la constelación de una sola muestra en segundos (guarda temporal en `/tmp/`). |
-| **Comprimir y Subir** | `pixi run compress-and-upload -d <carpeta_experimento>` | Comprime las subcarpetas a `.npz` y sincroniza inmediatamente con Google Drive (nunca sube `.complex64`). |
-| **Comprimir Solo** | `pixi run compress-dataset -d <carpeta_experimento>` | Comprime los `.complex64` locales a `.npz` sin sincronizar a la nube. |
+| **Comprimir y Subir a GITA** | `pixi run compress-and-upload -d <carpeta_experimento>` | Comprime las subcarpetas a `.npz` autocontenidos (`usrp_rx_gui_<escenario>_<dist>.npz`) y sube `.npz` + `.complex64` a GITA por `rsync`/SSH (con registro de auditoría y alerta en Wi-Fi `VisitanteUdeA`/`SoyUdeA`). |
+| **Comprimir Solo** | `pixi run compress-dataset -d <carpeta_experimento>` | Comprime los `.complex64` locales a `.npz` autocontenidos sin transferir a GITA. |
+| **Subir a GITA** | `pixi run upload-dataset -d <carpeta_experimento>` | Sube un dataset ya comprimido al servidor GITA (`/export2/camontoya/sofa_datasets`, grupo `sofa`). |
 | **Demodular Dataset** | `pixi run demodulate-qpsk -d <carpeta_experimento>` | Ejecuta el pipeline completo de demodulación y genera el `results_*.csv`. |
 | **Generar Gráficas** | `pixi run plot-results -c <ruta_a_resultados.csv>` | Genera curvas de BER y EVM vs SNR/OSNR promedio con sombreado de dispersión. |
 | **Validar Estructura** | `pixi run validate-dataset -d <carpeta_experimento>` | Comprueba que la carpeta del experimento tenga la estructura correcta (`0km/`, `20km/`, etc.). |
@@ -26,10 +27,10 @@ Todas las operaciones se ejecutan mediante [Pixi](https://pixi.sh/) para garanti
 
 Sigue estos 4 pasos durante las jornadas de medición:
 
-### 1. Guardar las Mediciones en el Lugar Correcto
-Guarda siempre las muestras dentro del árbol de Google Drive en `optnet_ml/results/hanna_maestria/`:
+### 1. Guardar las Mediciones con Estructura por Tecnología
+Organiza las muestras localmente siguiendo el esquema por tecnología y montaje:
 ```text
-optnet_ml/results/hanna_maestria/tu_experimento/
+rof_qpsk/uspl/nlna_step0p5db_370ma_650mhz_ch24/
 ├── 0km/
 │   └── *.complex64
 └── 20km/
@@ -39,19 +40,30 @@ optnet_ml/results/hanna_maestria/tu_experimento/
 ### 2. Verificar la Transmisión al Instante
 Antes de tomar muchas capturas o procesar todo el dataset, prueba una muestra para comprobar que la señal esté bien alineada:
 ```bash
-pixi run check-signal results/hanna_maestria/tu_experimento/0km/muestra.complex64
+pixi run check-signal rof_qpsk/uspl/mi_experimento/0km/muestra.complex64
 ```
 - **En pantalla:** Abre una ventana interactiva con el diagrama de constelación, cruces ideales, **BER** y **EVM (%)**.
 - **Limpio:** La gráfica se almacena en `/tmp/` para no ensuciar el repositorio. Si deseas guardarla permanentemente, agrega `-o mi_grafica.png`.
 
-### 3. Comprimir y Subir a Google Drive
-Al terminar la jornada de medición, comprime y sincroniza en un solo comando:
+### 3. Comprimir y Subir a GITA (`sofa_datasets`)
+> ⚠️ **Importante (Red UdeA):** Las redes Wi-Fi **VisitanteUdeA** y **SoyUdeA** bloquean el puerto de acceso (`22666`) al servidor GITA. Conéctate por **cable Ethernet** antes de subir datos.
+
+Al terminar la jornada de medición, comprime a `.npz` autocontenidos y sube `.npz` + `.complex64` a GITA (`/export2/camontoya/sofa_datasets`, grupo `sofa`):
 ```bash
-pixi run compress-and-upload -d results/hanna_maestria/tu_experimento
+# Desde tu PC personal (usa tu alias `Host gita` de ~/.ssh/config):
+pixi run compress-and-upload -d rof_qpsk/uspl/mi_experimento
+
+# Desde un PC compartido del laboratorio (identidad individual para trazabilidad):
+pixi run compress-and-upload -d rof_qpsk/uspl/mi_experimento \
+    --ssh-user hanna.colorado -i ~/.ssh/id_ed25519_hanna
+
+# Opcional: especificar modo de captura (usrp_rx_gui | usrp_rx_headless | usrp_rx_raw) o subir solo .npz:
+pixi run compress-and-upload -d rof_16qam/dfb/mi_experimento --capture-mode usrp_rx_raw --npz-only
 ```
-- Convierte todos los `.complex64` en `data_<distancia>.npz`.
-- Dispara la sincronización oficial con Google Drive vía `rclone-bisync`.
-- Protege la cuota de la nube asegurando que **nunca** se suban archivos pesados `.complex64`.
+- Genera archivos autocontenidos `usrp_rx_gui_<tecnologia>_<montaje>_<escenario>_<distancia>.npz`.
+- Transfiere vía `rsync` sobre SSH preservando el usuario dueño (quién publicó) y permisos del grupo `sofa` (`2770`).
+- Registra automáticamente cada publicación en `/export2/camontoya/sofa_datasets/upload_log.jsonl`.
+- Los archivos `.npz` y `.complex64` **NO se suben a Google Drive** (Google Drive conserva únicamente documentos, caracterizaciones y los `.csv`/gráficas ligeros).
 
 ### 4. Demodular y Graficar Resultados
 ```bash

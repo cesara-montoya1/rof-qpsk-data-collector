@@ -1,59 +1,17 @@
-"""Distance folder compressor module for 16-QAM signal dataset."""
+"""Backward-compatible re-export shim for shared NPZ compressor."""
 
-from pathlib import Path
-from typing import Optional
-import numpy as np
+from common.compressor import (
+    DEFAULT_CAPTURE_MODE,
+    KNOWN_CAPTURE_MODES,
+    build_npz_filename,
+    compress_distance_folder,
+    infer_scenario_slug,
+)
 
-
-def compress_distance_folder(distance_path: Path | str) -> Optional[Path]:
-    """
-    Scans distance directory for .complex64 files, compresses them into
-    a single data_<folder_name>.npz file inside the distance directory, and returns its Path.
-
-    If no .complex64 files are present, returns the Path to an existing .npz file
-    if found, otherwise returns None.
-
-    Args:
-        distance_path: Path to the distance directory.
-
-    Returns:
-        Path to the compressed .npz file, or None if no data is available.
-
-    Raises:
-        FileNotFoundError: If distance_path does not exist.
-        ValueError: If distance_path is not a directory.
-    """
-    path = Path(distance_path)
-    if not path.exists():
-        raise FileNotFoundError(f"Distance directory does not exist: {path}")
-    if not path.is_dir():
-        raise ValueError(f"Distance path is not a directory: {path}")
-
-    folder_name = path.name
-    target_npz_path = path / f"data_{folder_name}.npz"
-
-    complex_files = sorted(path.glob("*.complex64"))
-
-    if complex_files:
-        # Avoid redundant re-compression if target NPZ is already newer than all source files
-        if target_npz_path.exists():
-            npz_mtime = target_npz_path.stat().st_mtime_ns
-            if all(f.stat().st_mtime_ns <= npz_mtime for f in complex_files):
-                return target_npz_path
-
-        data_dict = {}
-        for file_path in complex_files:
-            signal_data = np.fromfile(file_path, dtype=np.complex64)
-            data_dict[file_path.stem] = signal_data
-
-        np.savez_compressed(target_npz_path, **data_dict)
-        return target_npz_path
-
-    if target_npz_path.exists():
-        return target_npz_path
-
-    existing_npzs = sorted(path.glob("*.npz"))
-    if existing_npzs:
-        return existing_npzs[0]
-
-    return None
+__all__ = [
+    "DEFAULT_CAPTURE_MODE",
+    "KNOWN_CAPTURE_MODES",
+    "build_npz_filename",
+    "compress_distance_folder",
+    "infer_scenario_slug",
+]

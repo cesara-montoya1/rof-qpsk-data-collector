@@ -163,7 +163,7 @@ def test_cli_commands(tmp_path: Path, monkeypatch):
         sys, "argv", ["cli.py", "compress", "--dataset-dir", str(dataset_dir)]
     )
     cli_main()
-    assert (dist_dir / "data_2km.npz").exists()
+    assert (dist_dir / "usrp_rx_gui_cli_dataset_2km.npz").exists()
 
     # Test CLI run
     monkeypatch.setattr(
