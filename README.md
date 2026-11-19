@@ -67,11 +67,14 @@ pixi run compress-and-upload -d rof_16qam/dfb/mi_experimento -i ~/.ssh/id_ed2551
 
 ### 4. Demodular y Graficar Resultados
 ```bash
-# Procesar demodulación (calcula BER, EVM y genera el CSV):
-pixi run demodulate-qpsk -d results/hanna_maestria/tu_experimento
+# Procesar demodulación QPSK (calcula BER, EVM y genera el CSV):
+pixi run demodulate-qpsk -d /export2/camontoya/sofa_datasets/rof_qpsk/uspl/<experimento>
+
+# Procesar demodulación 16-QAM:
+pixi run demodulate-16qam -d /export2/camontoya/sofa_datasets/rof_16qam/dfb/<experimento>
 
 # Graficar curvas BER y EVM vs (O)SNR en carpeta plots/:
-pixi run plot-results -d results/hanna_maestria/tu_experimento
+pixi run plot-results -d /export2/camontoya/sofa_datasets/rof_qpsk/uspl/<experimento>
 ```
 
 ---
@@ -84,19 +87,21 @@ optnet_ml/
 ├── pixi.toml                # Entorno y tareas reproducibles
 ├── run_qpsk_demodulation.sh # Wrapper para ejecución local y SLURM en GITA
 │
-├── qpsk_src/                # Código fuente del pipeline
-│   ├── cli.py               # CLI unificada (run, plot, constellation, compress, etc.)
-│   ├── pipeline.py          # Orquestador de demodulación y guardado seguro
-│   ├── demodulator.py       # Sincronización FFT y demodulación QPSK
-│   ├── evm.py               # Cálculo de EVM (RMS %, dB, Peak)
-│   ├── uploader.py          # Validación de rutas y sincronización a Google Drive
-│   ├── compressor.py        # Compresión masiva a archivos .npz
-│   ├── plotter.py           # Generador de gráficas de resultados y constelación
-│   └── data/tx.txt          # Secuencia PRBS transmitida de referencia
+├── common/                  # Utilidades compartidas (agnósticas a la modulación)
+│   ├── cli.py               # CLI unificada (validate, compress, upload)
+│   ├── compressor.py        # Compresión a .npz autocontenidos (usrp_rx_gui/headless/raw)
+│   ├── uploader.py          # Subida a GITA por rsync/SSH (guardia Wi-Fi UdeA + -i + upload_log)
+│   ├── validation.py        # Validación de estructura de distancias (0km, 2km, 20km, ...)
+│   ├── metadata.py          # Parser de metadatos desde nombres de captura
+│   ├── storage.py           # Lectura y escritura atómica segura de CSVs
+│   ├── evm.py               # Cálculo de EVM (RMS %, dB, Peak, mejor ventana)
+│   ├── runner.py            # Ejecutor GRC con auto-recuperación USB de USRP
+│   └── generate_tx.py       # Generador PRBS LFSR
 │
-├── tests/                   # Suite de pruebas automatizadas
-├── docs/                    # Documentación técnica avanzada
-└── results/                 # Datasets y resultados experimentales
+├── qpsk_src/                # Pipeline, demodulador, gráficas, diagnósticos y GRC de QPSK
+├── 16qam_src/               # Pipeline, demodulador, gráficas, diagnósticos y GRC de 16-QAM
+├── tests/                   # Suite de pruebas automatizadas (Pytest)
+└── docs/                    # Documentación técnica y guías de flujo de datos
 ```
 
 ---
@@ -105,6 +110,7 @@ optnet_ml/
 
 Para usuarios avanzados, investigadores que requieran interpretar anomalías físicas o detalles de hardware:
 
+- 🚀 **[Flujo de Datasets, Normalización y Subida a GITA](docs/gita_datasets_workflow.md)**: Guía paso a paso con ejemplos completos de configuración SSH privada, nombres `.npz` autocontenidos, subida con `-i` desde PC personal o compartido, `upload_log.jsonl` y actualización de `rclone-bisync`.
 - 📊 **[Guía de Diagnósticos Avanzados de Canal](docs/diagnosticos_avanzados.md)**: Análisis polar de EVM (ruido de fase vs ASE), densidad 2D, espectro de error (PSD) y detección de ráfagas transitorias.
 - 📋 **[Referencia de Métricas y Archivo CSV](docs/referencia_metricas_csv.md)**: Descripción detallada de cada columna del CSV, cálculo de EVM en dB/RMS, y reanudación inteligente (*backfill*).
 - 📻 **[Hardware USRP y Capturas Automatizadas](docs/hardware_usrp.md)**: Configuración del runner, parámetros de captura (`--repeat`, `--cooldown`), y auto-recuperación de USRP mediante reinicio por software del bus USB (`ioctl`).
