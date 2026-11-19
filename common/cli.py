@@ -38,7 +38,7 @@ def add_upload_arguments(parser: argparse.ArgumentParser) -> None:
         "--identity",
         type=str,
         default=None,
-        help="Path to SSH private key file (-i) for per-user authentication.",
+        help="Required path to your personal SSH private key file (or set OPTNET_GITA_KEY).",
     )
     parser.add_argument(
         "--remote-root",

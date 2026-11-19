@@ -46,19 +46,19 @@ pixi run check-signal rof_qpsk/uspl/mi_experimento/0km/muestra.complex64
 - **Limpio:** La gráfica se almacena en `/tmp/` para no ensuciar el repositorio. Si deseas guardarla permanentemente, agrega `-o mi_grafica.png`.
 
 ### 3. Comprimir y Subir a GITA (`sofa_datasets`)
-> ⚠️ **Importante (Red UdeA):** Las redes Wi-Fi **VisitanteUdeA** y **SoyUdeA** bloquean el puerto de acceso (`22666`) al servidor GITA. Conéctate por **cable Ethernet** antes de subir datos.
+> ⚠️ **Importante (Red UdeA):** Las redes Wi-Fi **VisitanteUdeA** y **SoyUdeA** bloquean el puerto SSH de acceso al servidor GITA. Conéctate por **cable Ethernet** antes de subir datos.
 
-Al terminar la jornada de medición, comprime a `.npz` autocontenidos y sube `.npz` + `.complex64` a GITA (`/export2/camontoya/sofa_datasets`, grupo `sofa`):
+La subida a GITA **exige siempre tu archivo de identidad SSH personal** (`-i/--identity` o la variable de entorno `OPTNET_GITA_KEY`) para mantener trazabilidad individual sobre quién publica cada dataset (el dominio y puerto de GITA se configuran exclusivamente de forma privada en tu `~/.ssh/config` bajo el alias `Host gita`):
 ```bash
-# Desde tu PC personal (usa tu alias `Host gita` de ~/.ssh/config):
-pixi run compress-and-upload -d rof_qpsk/uspl/mi_experimento
+# Subir con tu llave SSH personal (puedes exportar OPTNET_GITA_KEY=~/.ssh/tu_llave para omitir -i):
+pixi run compress-and-upload -d rof_qpsk/uspl/mi_experimento -i ~/.ssh/id_ed25519_gita
 
-# Desde un PC compartido del laboratorio (identidad individual para trazabilidad):
+# Desde un PC compartido del laboratorio (indicando además tu usuario de GITA):
 pixi run compress-and-upload -d rof_qpsk/uspl/mi_experimento \
     --ssh-user hanna.colorado -i ~/.ssh/id_ed25519_hanna
 
 # Opcional: especificar modo de captura (usrp_rx_gui | usrp_rx_headless | usrp_rx_raw) o subir solo .npz:
-pixi run compress-and-upload -d rof_16qam/dfb/mi_experimento --capture-mode usrp_rx_raw --npz-only
+pixi run compress-and-upload -d rof_16qam/dfb/mi_experimento -i ~/.ssh/id_ed25519_gita --capture-mode usrp_rx_raw --npz-only
 ```
 - Genera archivos autocontenidos `usrp_rx_gui_<tecnologia>_<montaje>_<escenario>_<distancia>.npz`.
 - Transfiere vía `rsync` sobre SSH preservando el usuario dueño (quién publicó) y permisos del grupo `sofa` (`2770`).

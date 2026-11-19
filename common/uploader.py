@@ -19,7 +19,6 @@ from .compressor import DEFAULT_CAPTURE_MODE
 BLOCKED_WIFI_SSIDS = ("VisitanteUdeA", "SoyUdeA")
 DEFAULT_GITA_HOST = "gita"
 DEFAULT_GITA_REMOTE_ROOT = "/export2/camontoya/sofa_datasets"
-DEFAULT_GITA_PORT = 22666
 
 _TECH_DIR_RE = re.compile(r"^rof_[a-z0-9]+$", re.IGNORECASE)
 
@@ -135,8 +134,8 @@ def check_gita_network_access(
 
     warning_msg = (
         f"⚠️ ADVERTENCIA DE RED: Estás conectado a la red Wi-Fi '{ssid}'. "
-        f"Las redes VisitanteUdeA y SoyUdeA bloquean el puerto de acceso al servidor GITA "
-        f"(puerto {DEFAULT_GITA_PORT}). Conéctate por cable Ethernet para subir datos a GITA."
+        "Las redes VisitanteUdeA y SoyUdeA bloquean el puerto SSH de acceso al servidor GITA. "
+        "Conéctate por cable Ethernet para subir datos a GITA."
     )
 
     if ignore_wifi_check or has_active_ethernet():
@@ -202,17 +201,42 @@ def infer_remote_relative_path(
     return resolved.name
 
 
+def resolve_identity_file(identity_file: Optional[Path | str] = None) -> Path:
+    """
+    Resolves and validates the mandatory per-user SSH identity file (-i / OPTNET_GITA_KEY).
+
+    Raises:
+        ValueError: If no identity file is supplied via CLI or OPTNET_GITA_KEY.
+        FileNotFoundError: If the specified identity file does not exist or is not a file.
+    """
+    raw = identity_file or os.environ.get("OPTNET_GITA_KEY")
+    if not raw or not str(raw).strip():
+        raise ValueError(
+            "Se requiere especificar tu archivo de identidad SSH personal mediante "
+            "-i/--identity o la variable de entorno OPTNET_GITA_KEY para identificar "
+            "quién publica los datos en GITA."
+        )
+    key_path = Path(str(raw).strip()).expanduser().resolve()
+    if not key_path.exists() or not key_path.is_file():
+        raise FileNotFoundError(f"Archivo de identidad SSH no encontrado: {key_path}")
+    return key_path
+
+
 def build_ssh_transport_args(
-    identity_file: Optional[Path | str] = None,
+    identity_file: Path | str,
     connect_timeout: int = 15,
 ) -> list[str]:
     """Builds the SSH command tokens used by rsync -e and remote mkdir/log commands."""
-    cmd = ["ssh", "-o", f"ConnectTimeout={connect_timeout}"]
-    key = identity_file or os.environ.get("OPTNET_GITA_KEY")
-    if key:
-        key_path = Path(key).expanduser()
-        cmd.extend(["-i", str(key_path), "-o", "IdentitiesOnly=yes"])
-    return cmd
+    key_path = Path(identity_file).expanduser()
+    return [
+        "ssh",
+        "-o",
+        f"ConnectTimeout={connect_timeout}",
+        "-i",
+        str(key_path),
+        "-o",
+        "IdentitiesOnly=yes",
+    ]
 
 
 def _collect_dataset_stats(dataset_path: Path, include_raw: bool) -> dict:
@@ -299,6 +323,11 @@ def upload_dataset_to_gita(
     """
     local_path = validate_dataset_upload_path(dataset_path)
 
+    try:
+        resolved_identity = resolve_identity_file(identity_file)
+    except (ValueError, FileNotFoundError) as exc:
+        return False, str(exc)
+
     can_proceed, wifi_warning = check_gita_network_access(
         ignore_wifi_check=ignore_wifi_check
     )
@@ -330,7 +359,7 @@ def upload_dataset_to_gita(
     rel_dest = infer_remote_relative_path(local_path, tech_subdir=tech_subdir)
     remote_dir = f"{resolved_root}/{rel_dest}"
 
-    ssh_cmd = build_ssh_transport_args(identity_file=identity_file)
+    ssh_cmd = build_ssh_transport_args(identity_file=resolved_identity)
     ssh_cmd_str = " ".join(shlex.quote(tok) for tok in ssh_cmd)
 
     rsync_cmd = [
@@ -351,7 +380,7 @@ def upload_dataset_to_gita(
 
     if dry_run:
         return True, (
-            f"[DRY RUN] Usuario SSH: {resolved_user} | Destino: {ssh_target}:{remote_dir}/\n"
+            f"[DRY RUN] Usuario SSH: {resolved_user} | Identidad: {resolved_identity} | Destino: {ssh_target}:{remote_dir}/\n"
             f"[DRY RUN] Comando: {' '.join(shlex.quote(c) for c in rsync_cmd)}"
         )
 
@@ -369,8 +398,8 @@ def upload_dataset_to_gita(
     if mkdir_res.returncode != 0:
         err = mkdir_res.stderr.strip()
         hint = (
-            "\nRecuerda: las redes Wi-Fi VisitanteUdeA y SoyUdeA bloquean el puerto "
-            f"{DEFAULT_GITA_PORT} de GITA; conéctate por cable Ethernet."
+            "\nRecuerda: las redes Wi-Fi VisitanteUdeA y SoyUdeA bloquean el puerto SSH "
+            "de acceso a GITA; conéctate por cable Ethernet."
         )
         return False, f"Error conectando con GITA ({ssh_target}): {err}{hint}"
 
