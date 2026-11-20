@@ -4,7 +4,8 @@ import argparse
 from pathlib import Path
 import numpy as np
 
-from .compressor import compress_distance_folder
+from common.cli import add_upload_arguments, handle_compress_command
+from common.compressor import DEFAULT_CAPTURE_MODE, KNOWN_CAPTURE_MODES
 from .pipeline import load_tx_reference, run_pipeline
 from .plotter import (
     generate_all_plots,
@@ -207,7 +208,7 @@ def main() -> None:
 
     # Subcommand: compress
     compress_parser = subparsers.add_parser(
-        "compress", help="Compress raw complex64 files into NPZ archives."
+        "compress", help="Compress raw complex64 files into self-contained NPZ archives."
     )
     compress_parser.add_argument(
         "--dataset-dir",
@@ -217,15 +218,28 @@ def main() -> None:
         help="Path to dataset directory or distance folder to compress.",
     )
     compress_parser.add_argument(
-        "--upload",
-        action="store_true",
-        help="Trigger immediate Google Drive synchronization after compression.",
+        "--capture-mode",
+        type=str,
+        default=DEFAULT_CAPTURE_MODE,
+        help=f"Capture mode prefix (presets: {', '.join(KNOWN_CAPTURE_MODES)}; default: {DEFAULT_CAPTURE_MODE}).",
     )
     compress_parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="Simulate compression and upload without modifying remote files.",
+        "--scenario-name",
+        type=str,
+        default=None,
+        help="Explicit scenario slug override for NPZ filename.",
     )
+    compress_parser.add_argument(
+        "--force",
+        action="store_true",
+        help="Force re-compression even if target NPZ is already up to date.",
+    )
+    compress_parser.add_argument(
+        "--upload",
+        action="store_true",
+        help="Upload dataset directly to GITA via rsync/SSH after compression.",
+    )
+    add_upload_arguments(compress_parser)
 
     # Subcommand: validate
     validate_parser = subparsers.add_parser(
@@ -389,39 +403,7 @@ def main() -> None:
         print("=" * 60 + "\n")
 
     elif args.command == "compress":
-        from .uploader import trigger_gdrive_sync, validate_results_path
-
-        raw_path = Path(args.dataset_dir)
-        if args.upload:
-            path = validate_results_path(raw_path)
-        else:
-            path = raw_path
-
-        compressed_count = 0
-        try:
-            distance_folders = validate_dataset_dir(path)
-            for folder in distance_folders:
-                npz = compress_distance_folder(folder)
-                if npz:
-                    compressed_count += 1
-                    print(f"Compressed {folder.name} -> {npz}")
-                else:
-                    print(f"No files compressed in {folder.name}")
-        except (ValueError, FileNotFoundError):
-            npz = compress_distance_folder(path)
-            if npz:
-                compressed_count += 1
-                print(f"Compressed {path.name} -> {npz}")
-            else:
-                print(f"No files to compress in {path}")
-
-        if args.upload:
-            print("\nIniciando sincronización con Google Drive (lafi:)...")
-            success, sync_msg = trigger_gdrive_sync(dry_run=args.dry_run)
-            print(sync_msg)
-            if not success:
-                raise SystemExit(1)
-            print("\n¡Proceso completado exitosamente!")
+        handle_compress_command(args)
 
     elif args.command == "validate":
         folders = validate_dataset_dir(args.dataset_dir)
