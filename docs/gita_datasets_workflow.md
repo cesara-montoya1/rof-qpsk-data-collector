@@ -8,7 +8,7 @@ Complete operational guide for managing experimental Radio-over-Fiber (RoF) data
 
 | Asset Type | Location | Policy |
 | :--- | :--- | :--- |
-| **Source code (`optnet_ml`)** | GitHub (`rof-qpsk-data-collector`), cloned locally outside Google Drive (e.g., `~/Projects/optnet_ml`) | Never store `.pixi/` or raw datasets inside Google Drive. |
+| **Source code (`optnet_ml`)** | GitHub (`rof-qpsk-data-collector`), cloned locally outside Google Drive LAFI (e.g., `~/Development/optnet_ml`) | Never store `.pixi/` or raw datasets inside Google Drive LAFI. |
 | **Heavy datasets (`.npz`, `.complex64`) & spectra** | GITA: `/export2/camontoya/sofa_datasets/` | Shared via UNIX group **`sofa`** (`chmod 2770`, SGID). Preserves both compressed `.npz` and raw `.complex64`. |
 | **Lab docs, characterizations & lightweight results** | Google Drive LAFI (`caracterizaciones/`, `documentos/`, `misc/`, `resultados/`) | Synced automatically via `rclone-bisync`. `filters-lafi.txt` strictly blocks `*.npz`, `*.complex64`, and `/espectros/**`. |
 

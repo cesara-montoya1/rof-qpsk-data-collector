@@ -46,9 +46,9 @@ With **OptNET ML**, you can acquire, validate, compress, upload, demodulate, and
 Follow these steps to clone the repository, install dependencies, and verify your environment for the first time:
 
 ```bash
-# 1. Clone outside any cloud-synced folder (e.g., outside Google Drive)
-git clone git@github.com:cesara-montoya1/rof-qpsk-data-collector.git ~/Projects/optnet_ml
-cd ~/Projects/optnet_ml
+# 1. Clone outside any cloud-synced LAFI folder
+git clone git@github.com:cesara-montoya1/rof-qpsk-data-collector.git ~/Development/optnet_ml
+cd ~/Development/optnet_ml
 
 # 2. Install the reproducible Pixi environment
 pixi install
@@ -183,6 +183,7 @@ The suite validates constellation geometry, modulation/demodulation round-trips,
 ## Documentation
 
 - **[Dataset Naming, Compression, and GITA Upload Workflow](docs/gita_datasets_workflow.md)** — Private SSH setup, `sofa` group permissions, self-contained NPZ naming rules, shared lab PC upload examples, `upload_log.jsonl` auditing, and `rclone-bisync` maintenance.
+- **[Experiment README & Experimental Design Template](docs/experiment_readme_template.md)** — Standard per-campaign README format with Mermaid optical/RF bench schematic, operationalized variables, bias control, replication, and uncertainty reporting.
 - **[Advanced Channel Diagnostics Guide](docs/channel_diagnostics.md)** — Physical interpretation of BER vs. theoretical AWGN EVM, polar amplitude/phase EVM decomposition, error PSD, 2D constellation density, and error burst profiles.
 - **[CSV Metrics & Backfill Reference](docs/csv_metrics_reference.md)** — Exact schema, units, and incremental backfill semantics for `results_*.csv`.
 - **[USRP Capture Hardware & Auto-Recovery](docs/usrp_capture_hardware.md)** — Automated multi-capture loops (`--repeat`, `--cooldown`) and software USB reset via `ioctl(USBDEVFS_RESET)`.
