@@ -63,7 +63,7 @@
 ### Variant A: USPL + AAWG + EDFA Source (with optional LNA)
 
 ```mermaid
-flowchart LR
+flowchart TD
     subgraph SRC["Optical Source (USPL)"]
         USPL["USPL Laser (TODO mA)"] --> AAWG["AAWG (Ch TODO)"]
         AAWG --> EDFA1["EDFA 1 (Padtec S/N: TODO)"]
