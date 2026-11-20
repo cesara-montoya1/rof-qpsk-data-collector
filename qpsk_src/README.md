@@ -1,111 +1,81 @@
-# RoF QPSK Data Collector
+# QPSK Signal Processing & RoF Automation Package (`qpsk_src`)
 
-A modular Python automation framework designed for **Radio-over-Fiber (RoF)** experimental data acquisition. This tool orchestrates GNU Radio flowgraphs to capture QPSK modulated signals, calculates real-time SNR, and manages experimental datasets with high precision.
+Part of **[OptNET ML](../README.md)** · Maintained by the **LAFI / SOFA Research Group**
+
+This package provides QPSK-specific GNU Radio Companion (GRC) flowgraphs, live USRP capture orchestration, offline FFT-synchronized demodulation, BER/EVM plotting, and channel diagnostics. Modulation-agnostic utilities (`compressor`, `uploader`, `validation`, `metadata`, `storage`, `evm`, `runner`, `generate_tx`) live in [`common/`](../common/) and are re-exported here for backward compatibility.
 
 ---
 
-## 📁 Repository Structure
+## Package Layout
 
 ```text
 qpsk_src/
-├── data/               # Static reference data (tx.txt)
-├── grc/                # GNU Radio Companion flowgraphs and compiled .py scripts
-├── src/                # Core automation logic
-│   ├── main.py         # Main orchestrator (--repeat, --retries, --cooldown)
-│   ├── runner.py       # GRC process management, synchronous teardown & USB reset
-│   └── file_manager.py # Naming convention and collision avoidance
-└── tools/              # Post-processing & utility scripts
-    ├── ber_count_qpsk.py # Single-file QPSK BER/EVM and constellation analyzer
-    └── generate_tx.py    # PRBS generator using streaming binary chunks
+├── cli.py              # QPSK CLI entrypoint (run, plot, diagnostics, constellation, compress, validate)
+├── demodulator.py      # Gray QPSK constellation, FFT delay sync, 4-rotation BER search
+├── pipeline.py         # Batch .npz/.complex64 demodulation with incremental CSV backfill
+├── plotter.py          # BER/EVM vs. SNR/OSNR curves and constellation plots
+├── diagnostics.py      # Polar EVM, error PSD, 2D density, burst profile, AWGN bound
+├── data/tx.txt         # Reference PRBS transmission bitstream
+├── grc/                # GNU Radio Companion flowgraphs (.grc) and compiled .py scripts
+├── src/                # Live USRP capture orchestrator (main.py, file_manager.py)
+└── tools/              # Standalone single-file analyzer (ber_count_qpsk.py)
 ```
 
 ---
 
-## 🚀 Getting Started
-
-### 1. Prerequisites
-
-* **GNU Radio 3.8+** (with ZMQ and UHD blocks)
-* **Python 3.11+**
-* Connected USRP device (Ettus Research B200/B210/B200mini, NI USRP series)
-
-### 2. Generate Transmission Reference Bits
-
-Generate a PRBS sequence using the streaming generator (e.g. PRBS17 = 131,071 bits):
+## Quick Usage
 
 ```bash
-python3 tools/generate_tx.py --order 17 --output data/tx.txt
+# Generate a PRBS17 transmission reference bitstream
+python3 -m common.generate_tx --order 17 --output qpsk_src/data/tx.txt
+
+# Automated capture (10 repetitions with USRP USB recovery)
+python3 -m qpsk_src.src.main \
+    --osnr 32.5 --distance 20 --power 0 --freq 650 \
+    --repeat 10 --cooldown 2.0 --retries 3 \
+    --move ./rof_qpsk/dfb/my_experiment/20km
+
+# Quick single-file constellation + BER/EVM check
+pixi run check-signal path/to/capture.complex64
+
+# Batch demodulation and plotting
+pixi run demodulate-qpsk -d /export2/camontoya/sofa_datasets/rof_qpsk/uspl/<experiment>
+pixi run plot-results -d /export2/camontoya/sofa_datasets/rof_qpsk/uspl/<experiment>
+
+# Standalone exploratory report on a single capture
+python3 qpsk_src/tools/ber_count_qpsk.py \
+    --tx qpsk_src/data/tx.txt \
+    --rx path/to/capture.complex64 \
+    --skip-initial-symbols 500 \
+    --best-window-symbols 5000 \
+    --output /tmp/qpsk_report.png
 ```
-
-### 3. Running an Experiment (Automated Capture with Auto-Recovery)
-
-Instead of using error-prone bash loops that cause USB collisions and `No devices found` errors, use the built-in `--repeat` and `--cooldown` parameters:
-
-```bash
-# Capture 10 consecutive files at 650 MHz, OSNR 32.5 dB, 20 km distance:
-python3 src/main.py \
-    --osnr 32.5 \
-    --distance 20 \
-    --power 0 \
-    --freq 650 \
-    --repeat 10 \
-    --cooldown 2.0 \
-    --retries 3 \
-    --move ../data/results
-```
-
-#### 🛡️ USRP Hardware Teardown & Auto-Recovery:
-- **`--repeat N`**: Executes $N$ captures sequentially without exiting the Python process.
-- **`--cooldown T`**: Waits $T$ seconds (recommended: 2.0s) between iterations to guarantee `libusb` and the Linux kernel cleanly release the USRP device handle.
-- **`--retries R`**: If a transient `RuntimeError: LookupError: KeyError: No devices found for -----> Empty Device Address` occurs, the runner initiates a **software USB bus reset** via `ioctl(USBDEVFS_RESET)` on the USRP port, emulating a physical disconnect/reconnect automatically.
-- **`--usrp-args "..."`**: Allows specifying explicit USRP device parameters (e.g., `--usrp-args "type=b200"` or serial number).
 
 ---
 
-## 📊 Automated Filename Convention
-
-The system uses a strict naming convention to ensure datasets are self-describing and collision-resistant:
+## Capture Filename Convention
 
 `rof_{Power}dBm_{Dist}km_osnr{OSNR}dB_{Freq}mhz_{Mbps}mbps_snr{MeasuredSNR}dB.complex64`
 
-* **Mbps Calculation:** Based on base clock and samples per symbol.
-* **Collision Avoidance:** If a file with the exact same measured SNR exists, the script applies a micro-jitter to the filename to prevent accidental overwrites.
+If a capture produces an identical measured SNR to an existing file in the same directory, `file_manager.py` applies a small collision-avoidance suffix so no measurement is overwritten.
 
 ---
 
-## 🔍 Single-File Exploratory Analysis (`tools/ber_count_qpsk.py`)
-
-To inspect a single captured signal file without running the full dataset pipeline:
-
-```bash
-python3 tools/ber_count_qpsk.py \
-    --tx data/tx.txt \
-    --rx ../data/results/your_file.complex64 \
-    --skip-initial-symbols 500 \
-    --best-window-symbols 5000 \
-    --output report.png
-```
-
-**Output Panels:**
-1. **BER across 90° Rotations:** Visualizes bit error rates for all 4 possible carrier phase locks ($0^\circ, 90^\circ, 180^\circ, 270^\circ$).
-2. **Cumulative Error Plot:** Distinguishes between **Uniform Random Noise** (constant diagonal slope) and **Burst Errors** (sharp vertical steps).
-3. **Constellation Diagram:** Displays synchronized received symbols against ideal QPSK coordinates, reporting both RMS EVM and best-window EVM.
-
----
-
-## ⚙️ Configuration Parameters
+## Capture Parameters (`qpsk_src.src.main`)
 
 | Parameter | Default | Description |
 | :--- | :--- | :--- |
-| `--freq` | **Required** | Center frequency in MHz (e.g. 650, 900, 1200). |
-| `--osnr` | `0.0` | Optical Signal-to-Noise Ratio (dB) setpoint. |
-| `--distance`| `0.0` | Optical fiber length in km. |
-| `--power` | `0.0` | Launch power in dBm. |
-| `--repeat` | `1` | Number of consecutive captures to perform. |
-| `--cooldown`| `2.0` | Cooldown pause (seconds) between captures. |
-| `--retries` | `3` | Max recovery retries upon USRP `LookupError`. |
-| `--usrp-args`| `""` | Extra device arguments passed to UHD (e.g. `serial=...`). |
-| `--samp-rate-div` | `1` | Decimation factor for the 15 MHz clock. |
+| `--freq` | **Required** | RF carrier frequency in MHz (e.g., `650`, `900`, `1200`). |
+| `--osnr` | `0.0` | Nominal OSNR setpoint in dB. |
+| `--distance` | `0.0` | Optical fiber length in km. |
+| `--power` | `0.0` | Optical launch power in dBm. |
+| `--repeat` | `1` | Number of consecutive captures per run. |
+| `--cooldown` | `2.0` | Pause in seconds between captures. |
+| `--retries` | `3` | Maximum recovery retries on USRP `LookupError`. |
+| `--usrp-args` | `""` | Additional UHD device arguments (e.g., `serial=...`). |
+| `--samp-rate-div` | `1` | Decimation factor for the 15 MHz base clock. |
 | `--samp-sym` | `16` | Samples per symbol (SPS). |
 | `--zmq-addr` | `tcp://0.0.0.0:18305` | ZMQ endpoint for SNR heartbeat messages. |
-| `--move` | `""` | Destination folder for renamed files. |
+| `--move` | `""` | Destination folder for renamed captures. |
+
+For dataset compression, self-contained NPZ naming, and GITA uploads, see [`docs/gita_datasets_workflow.md`](../docs/gita_datasets_workflow.md).
